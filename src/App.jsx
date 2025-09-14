@@ -3,7 +3,8 @@ import { linesToHeatPoints, yearsFromFeatures, shoesFromFeatures, typesFromFeatu
 import Header from "./components/ui/Header";
 import MapView from "./components/map/MapView";
 import InsightsView from "./components/insights/InsightsView";
-import PersonalBestView from "./components/personalBest/PersonalBestView"; // ⬅️ uses pb JSON
+import PersonalBestView from "./components/personalBest/PersonalBestView";
+import RecentRunsList from "./components/runs/RecentRunsList"; // uses runs_index.json
 
 export default function StravaHeatmapApp() {
   // "map" | "insights" | "pb"
@@ -11,9 +12,10 @@ export default function StravaHeatmapApp() {
 
   const [geojson, setGeojson] = useState(null);
   const [stats, setStats] = useState(null);
-  const [pb, setPb] = useState(null); // ⬅️ NEW
+  const [pb, setPb] = useState(null);
+  const [indexData, setIndexData] = useState(null); // ← runs_index.json
 
-  const [showLines, setShowLines] = useState(true); // lines ON by default
+  const [showLines, setShowLines] = useState(true);
   const [radius, setRadius] = useState(8);
   const [blur, setBlur] = useState(12);
 
@@ -21,10 +23,8 @@ export default function StravaHeatmapApp() {
   const [type, setType] = useState("Run");
   const [shoe, setShoe] = useState("All");
 
-  // Weekly chart range for Insights
-  const [weeklyRange, setWeeklyRange] = useState("all"); // "all" | "12m" | "6m" | "3m" | "1m"
+  const [weeklyRange, setWeeklyRange] = useState("all");
 
-  // Heatmap palette + gradients
   const gradients = React.useMemo(
     () => ({
       "Red→Orange→Yellow": { 0.0: "#ff0000", 0.5: "#ff7f00", 1.0: "#ffff00" },
@@ -38,7 +38,6 @@ export default function StravaHeatmapApp() {
   const [palette, setPalette] = useState("Grayscale");
   const gradient = gradients[palette];
 
-  // Line colour selector
   const lineColors = React.useMemo(
     () => ({
       "Dark Blue": "#0b3d91",
@@ -52,19 +51,33 @@ export default function StravaHeatmapApp() {
   const [lineColorName, setLineColorName] = useState("White");
   const lineColor = lineColors[lineColorName];
 
-  // Load default data
+  // Selection state (for highlight-on-map)
+  const [selectedRunId, setSelectedRunId] = useState(null);
+  const [selectedFeature, setSelectedFeature] = useState(null);
+
+  // Load data
   useEffect(() => {
-    fetch("/runs.geojson").then((r) => (r.ok ? r.json() : null)).then((j) => j && setGeojson(j)).catch(() => {});
-    fetch("/stats.json").then((r) => (r.ok ? r.json() : null)).then((s) => s && setStats(s)).catch(() => {});
-    fetch("/personal_bests.json").then((r) => (r.ok ? r.json() : null)).then((p) => p && setPb(p)).catch(() => {}); // ⬅️ NEW
+    fetch("/runs.geojson").then(r => (r.ok ? r.json() : null)).then(j => j && setGeojson(j)).catch(() => {});
+    fetch("/stats.json").then(r => (r.ok ? r.json() : null)).then(s => s && setStats(s)).catch(() => {});
+    fetch("/personal_bests.json").then(r => (r.ok ? r.json() : null)).then(p => p && setPb(p)).catch(() => {});
+    fetch("/runs_index.json").then(r => (r.ok ? r.json() : null)).then(idx => idx && setIndexData(idx)).catch(() => {});
   }, []);
 
   const features = geojson?.features || [];
+  const idToFeature = useMemo(() => {
+    const m = new Map();
+    for (const f of features) {
+      const id = f?.properties?.id;
+      if (id != null) m.set(String(id), f);
+    }
+    return m;
+  }, [features]);
 
   const yearOptions = useMemo(() => ["All", ...yearsFromFeatures(features)], [features]);
   const shoeOptions = useMemo(() => ["All", ...shoesFromFeatures(features)], [features]);
   const typeOptions = useMemo(() => ["All", ...typesFromFeatures(features)], [features]);
 
+  // Map filters (apply only to map layers; the list uses indexData)
   const filtered = useMemo(() => {
     return features.filter((f) => {
       const p = f.properties || {};
@@ -78,6 +91,7 @@ export default function StravaHeatmapApp() {
     });
   }, [features, year, type, shoe]);
 
+  // Heatmap reflects ALL currently filtered runs, regardless of selection
   const heatPoints = useMemo(() => linesToHeatPoints(filtered, 1), [filtered]);
 
   function handleFile(e) {
@@ -89,12 +103,30 @@ export default function StravaHeatmapApp() {
         const data = JSON.parse(reader.result);
         setGeojson(data);
         setYear("All"); setType("All"); setShoe("All");
-      } catch (err) {
+        setSelectedRunId(null); setSelectedFeature(null);
+      } catch {
         alert("Invalid GeoJSON file");
       }
     };
     reader.readAsText(file);
   }
+
+  // When a list item is clicked, highlight the map feature if present
+  function selectRun(id) {
+    const key = String(id);
+    setSelectedRunId(key);
+    setSelectedFeature(idToFeature.get(key) || null); // may be null if has_map=false
+  }
+  function clearSelection() {
+    setSelectedRunId(null);
+    setSelectedFeature(null);
+  }
+
+  // Sidebar items: cap to 30 from runs_index.json (already sorted newest → oldest)
+  const last100 = useMemo(() => {
+    const items = indexData?.items || [];
+    return items.slice(0, 100);
+  }, [indexData]);
 
   return (
     <div style={{ height: "100vh", display: "grid", gridTemplateRows: "auto 1fr", background: "#f8fafc" }}>
@@ -115,15 +147,27 @@ export default function StravaHeatmapApp() {
 
       <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
         {tab === "map" ? (
-          <MapView
-            filtered={filtered}
-            heatPoints={heatPoints}
-            radius={radius}
-            blur={blur}
-            gradient={gradient}
-            showLines={showLines}
-            lineColor={lineColor}
-          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "100%" }}>
+            <MapView
+              filtered={filtered}
+              heatPoints={heatPoints}
+              radius={radius}
+              blur={blur}
+              gradient={gradient}
+              showLines={showLines}
+              lineColor={lineColor}
+              selectedFeature={selectedFeature}     // highlight on map (may be null if no geometry)
+              highlightColor="#ff6a00"
+            />
+
+            <RecentRunsList
+              items={last100}                 // ← use runs_index.json (stats source)
+              selectedId={selectedRunId}
+              onSelect={(id) => selectRun(id)}
+              onClear={clearSelection}
+              pageSize={10}                  // ← paginate 10 at a time
+            />
+          </div>
         ) : tab === "insights" ? (
           <InsightsView
             stats={stats}
@@ -133,10 +177,9 @@ export default function StravaHeatmapApp() {
             setWeeklyRange={setWeeklyRange}
           />
         ) : (
-          // tab === "pb"
           <PersonalBestView
-            pb={pb}            // ⬅️ use the S3 personal_bests.json
-            features={features} // optional fallback if pb is null (component can ignore)
+            pb={pb}
+            features={features}
           />
         )}
       </div>
