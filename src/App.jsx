@@ -1,43 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { linesToHeatPoints, yearsFromFeatures, shoesFromFeatures, typesFromFeatures } from "./lib/geo";
+import { yearsFromFeatures, shoesFromFeatures, typesFromFeatures } from "./lib/geo";
 import Header from "./components/ui/Header";
 import MapView from "./components/map/MapView";
 import InsightsView from "./components/insights/InsightsView";
 import PersonalBestView from "./components/personalBest/PersonalBestView";
-import RecentRunsList from "./components/runs/RecentRunsList"; // uses runs_index.json
+import RecentRunsList from "./components/runs/RecentRunsList";
+
+const SIDEBAR_WIDTH = 340; // keep the map big
 
 export default function StravaHeatmapApp() {
-  // "map" | "insights" | "pb"
   const [tab, setTab] = useState("map");
 
   const [geojson, setGeojson] = useState(null);
   const [stats, setStats] = useState(null);
   const [pb, setPb] = useState(null);
-  const [indexData, setIndexData] = useState(null); // ← runs_index.json
+  const [indexData, setIndexData] = useState(null);
 
-  const [showLines, setShowLines] = useState(true);
-  const [radius, setRadius] = useState(8);
-  const [blur, setBlur] = useState(12);
-
+  // Filters (default to All so nothing is hidden at startup)
   const [year, setYear] = useState("All");
-  const [type, setType] = useState("Run");
+  const [type, setType] = useState("All");
   const [shoe, setShoe] = useState("All");
 
   const [weeklyRange, setWeeklyRange] = useState("all");
 
-  const gradients = React.useMemo(
-    () => ({
-      "Red→Orange→Yellow": { 0.0: "#ff0000", 0.5: "#ff7f00", 1.0: "#ffff00" },
-      "Yellow→Orange→Red": { 0.0: "#ffff00", 0.5: "#ff7f00", 1.0: "#ff0000" },
-      "Blue→Lime→Red": { 0.4: "blue", 0.65: "lime", 1.0: "red" },
-      "Purple→Pink→Yellow": { 0.0: "#6b21a8", 0.5: "#ec4899", 1.0: "#fde047" },
-      Grayscale: { 0.4: "#444", 0.65: "#888", 1.0: "#ccc" },
-    }),
-    []
-  );
-  const [palette, setPalette] = useState("Grayscale");
-  const gradient = gradients[palette];
-
+  // Line colors
   const lineColors = React.useMemo(
     () => ({
       "Dark Blue": "#0b3d91",
@@ -51,11 +37,11 @@ export default function StravaHeatmapApp() {
   const [lineColorName, setLineColorName] = useState("White");
   const lineColor = lineColors[lineColorName];
 
-  // Selection state (for highlight-on-map)
+  // Selection (for highlight-on-map)
   const [selectedRunId, setSelectedRunId] = useState(null);
   const [selectedFeature, setSelectedFeature] = useState(null);
 
-  // Load data
+  // Load data once
   useEffect(() => {
     fetch("/runs.geojson").then(r => (r.ok ? r.json() : null)).then(j => j && setGeojson(j)).catch(() => {});
     fetch("/stats.json").then(r => (r.ok ? r.json() : null)).then(s => s && setStats(s)).catch(() => {});
@@ -64,6 +50,31 @@ export default function StravaHeatmapApp() {
   }, []);
 
   const features = geojson?.features || [];
+
+  // Safety: relax filters if they eliminate everything due to mismatched labels
+  useEffect(() => {
+    if (!features.length) return;
+    if (type !== "All") {
+      const presentTypes = new Set(features.map(f => f?.properties?.type).filter(Boolean));
+      if (!presentTypes.has(type)) setType("All");
+    }
+    if (year !== "All") {
+      const presentYears = new Set(features.map(f => {
+        const p = f.properties || {};
+        return p.year || (p.start_date ? new Date(p.start_date).getUTCFullYear().toString() : null);
+      }).filter(Boolean));
+      if (!presentYears.has(year)) setYear("All");
+    }
+    if (shoe !== "All") {
+      const presentShoes = new Set(features.map(f => {
+        const p = f.properties || {};
+        return p.shoe_name || p.gear_name || p.gear_id || null;
+      }).filter(Boolean));
+      if (!presentShoes.has(shoe)) setShoe("All");
+    }
+  }, [features, type, year, shoe]);
+
+  // Lookup for selection → feature
   const idToFeature = useMemo(() => {
     const m = new Map();
     for (const f of features) {
@@ -77,7 +88,7 @@ export default function StravaHeatmapApp() {
   const shoeOptions = useMemo(() => ["All", ...shoesFromFeatures(features)], [features]);
   const typeOptions = useMemo(() => ["All", ...typesFromFeatures(features)], [features]);
 
-  // Map filters (apply only to map layers; the list uses indexData)
+  // Apply filters (for map layers)
   const filtered = useMemo(() => {
     return features.filter((f) => {
       const p = f.properties || {};
@@ -90,9 +101,6 @@ export default function StravaHeatmapApp() {
       return true;
     });
   }, [features, year, type, shoe]);
-
-  // Heatmap reflects ALL currently filtered runs, regardless of selection
-  const heatPoints = useMemo(() => linesToHeatPoints(filtered, 1), [filtered]);
 
   function handleFile(e) {
     const file = e.target.files?.[0];
@@ -111,7 +119,7 @@ export default function StravaHeatmapApp() {
     reader.readAsText(file);
   }
 
-  // When a list item is clicked, highlight the map feature if present
+  // Selection handlers
   function selectRun(id) {
     const key = String(id);
     setSelectedRunId(key);
@@ -122,50 +130,48 @@ export default function StravaHeatmapApp() {
     setSelectedFeature(null);
   }
 
-  // Sidebar items: cap to 30 from runs_index.json (already sorted newest → oldest)
-  const last100 = useMemo(() => {
-    const items = indexData?.items || [];
-    return items.slice(0, 100);
-  }, [indexData]);
+  // Sidebar: grab recent runs from index
+  const last300 = useMemo(() => (indexData?.items || []).slice(0, 300), [indexData]);
 
   return (
-    <div style={{ height: "100vh", display: "grid", gridTemplateRows: "auto 1fr", background: "#f8fafc" }}>
+    <div style={{ position: "fixed", inset: 0, display: "grid", gridTemplateRows: "auto 1fr", background: "#f8fafc", minWidth: 0, minHeight: 0 }}>
       <Header
         tab={tab}
         setTab={setTab}
         year={year} yearOptions={yearOptions} setYear={setYear}
         type={type} typeOptions={typeOptions} setType={setType}
         shoe={shoe} shoeOptions={shoeOptions} setShoe={setShoe}
-        radius={radius} setRadius={setRadius}
-        blur={blur} setBlur={setBlur}
-        palette={palette} setPalette={setPalette}
-        gradients={gradients}
         lineColorName={lineColorName} setLineColorName={setLineColorName}
         lineColors={lineColors}
-        showLines={showLines} setShowLines={setShowLines}
+        onFile={handleFile}
       />
 
       <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
         {tab === "map" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", height: "100%" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `minmax(0, 1fr) ${SIDEBAR_WIDTH}px`,
+              gap: 0,
+              height: "100%",
+              minHeight: 0,
+            }}
+          >
+            {/* Map takes all remaining space */}
             <MapView
               filtered={filtered}
-              heatPoints={heatPoints}
-              radius={radius}
-              blur={blur}
-              gradient={gradient}
-              showLines={showLines}
               lineColor={lineColor}
-              selectedFeature={selectedFeature}     // highlight on map (may be null if no geometry)
+              selectedFeature={selectedFeature}
               highlightColor="#ff6a00"
             />
 
+            {/* Right sidebar with sticky header inside component */}
             <RecentRunsList
-              items={last100}                 // ← use runs_index.json (stats source)
+              items={last300}
               selectedId={selectedRunId}
               onSelect={(id) => selectRun(id)}
               onClear={clearSelection}
-              pageSize={10}                  // ← paginate 10 at a time
+              pageSize={50}
             />
           </div>
         ) : tab === "insights" ? (
@@ -177,10 +183,7 @@ export default function StravaHeatmapApp() {
             setWeeklyRange={setWeeklyRange}
           />
         ) : (
-          <PersonalBestView
-            pb={pb}
-            features={features}
-          />
+          <PersonalBestView pb={pb} features={features} />
         )}
       </div>
     </div>

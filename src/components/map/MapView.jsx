@@ -2,34 +2,40 @@ import React, { useMemo } from "react";
 import { MapContainer, TileLayer, GeoJSON, LayersControl, Pane } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.heat"; // plugin
-import HeatmapLayer from "./HeatmapLayer";
 import FitToBounds from "./FitToBounds";
 import MapInvalidateOnReady from "./MapInvalidateOnReady";
 
 export default function MapView({
   filtered,
-  heatPoints,
-  radius,
-  blur,
-  gradient,
-  showLines,
   lineColor,
   selectedFeature,
   highlightColor = "#ff6a00",
 }) {
-  // Split visible features into base vs selected
-  const { baseFeatures, selectedOnly } = useMemo(() => {
-    if (!selectedFeature) return { baseFeatures: filtered, selectedOnly: [] };
-    const base = filtered.filter((f) => f !== selectedFeature);
-    return { baseFeatures: base, selectedOnly: [selectedFeature] };
-  }, [filtered, selectedFeature]);
+  // Base data = all filtered runs
+  const baseGeojsonData = useMemo(
+    () => ({ type: "FeatureCollection", features: filtered }),
+    [filtered]
+  );
 
-  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.4 }), [lineColor]);
-  const hiStyle = useMemo(() => ({ color: highlightColor, weight: 4, opacity: 0.95 }), [highlightColor]);
+  // Selected overlay = only the chosen run
+  const selectedGeojsonData = useMemo(
+    () => (selectedFeature ? { type: "FeatureCollection", features: [selectedFeature] } : null),
+    [selectedFeature]
+  );
 
-  // Use the selected feature's id in the key to force a clean remount on change
-  const selectedId = selectedOnly[0]?.properties?.id ?? "none";
+  // Force base layer to remount whenever 'filtered' changes (e.g., after fetch)
+  const baseKey = useMemo(() => {
+    const len = filtered.length;
+    const firstId = len ? (filtered[0]?.properties?.id ?? "a") : "x";
+    const lastId  = len ? (filtered[len - 1]?.properties?.id ?? "b") : "y";
+    return `base-${len}-${firstId}-${lastId}`;
+  }, [filtered]);
+
+  const selectedId = selectedFeature?.properties?.id ?? "none";
+
+  // Line styles
+  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1.5, opacity: 0.85 }), [lineColor]);
+  const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4,   opacity: 0.98 }), [highlightColor]);
 
   return (
     <MapContainer
@@ -38,7 +44,7 @@ export default function MapView({
       zoom={2}
       minZoom={2}
       worldCopyJump
-      preferCanvas={true}
+      preferCanvas={true}        // Canvas = fewer DOM nodes, faster
       wheelDebounceTime={40}
       updateWhenZooming={false}
       updateWhenIdle={true}
@@ -82,40 +88,43 @@ export default function MapView({
         </LayersControl.BaseLayer>
       </LayersControl>
 
-      {/* Heatmap over all filtered runs */}
-      <HeatmapLayer points={heatPoints} radius={radius} blur={blur} gradient={gradient} />
-
-      {/* Base lines in a lower z-index pane — Canvas + non-interactive */}
-      <Pane name="base-lines" style={{ zIndex: 450 }} />
-      {showLines && baseFeatures.length > 0 && (
+      {/* Base lines: very high z, always on top by default (no heat layer exists now) */}
+      <Pane name="base-lines" style={{ zIndex: 1000 }} />
+      {filtered.length > 0 && (
         <GeoJSON
-          key="base-lines" // keep stable for perf
+          key={baseKey}
           pane="base-lines"
-          data={{ type: "FeatureCollection", features: baseFeatures }}
+          data={baseGeojsonData}
           style={baseStyle}
           renderer={L.canvas()}
           interactive={false}
           smoothFactor={1.0}
+          whenCreated={(layer) => {
+            try { layer.bringToFront(); } catch {}
+          }}
         />
       )}
 
-      {/* Selected run on top in bright orange — force remount when id changes */}
-      <Pane name="selected-line" style={{ zIndex: 650 }} />
-      {showLines && selectedOnly.length === 1 && (
+      {/* Selected overlay: highest of all */}
+      <Pane name="selected-line" style={{ zIndex: 1100 }} />
+      {selectedGeojsonData && (
         <GeoJSON
-          key={`selected-${selectedId}`} // ← remount on selection change
+          key={`selected-${selectedId}`}
           pane="selected-line"
-          data={{ type: "FeatureCollection", features: selectedOnly }}
+          data={selectedGeojsonData}
           style={hiStyle}
           renderer={L.canvas()}
           interactive={false}
           smoothFactor={0}
+          whenCreated={(layer) => {
+            try { layer.bringToFront(); } catch {}
+          }}
         />
       )}
 
-      {/* Auto-zoom: selected feature if present, else all filtered */}
+      {/* Fit to selected if present; else fit to all */}
       <FitToBounds
-        features={selectedOnly.length ? selectedOnly : filtered}
+        features={selectedFeature ? [selectedFeature] : filtered}
         maxZoom={14}
       />
     </MapContainer>

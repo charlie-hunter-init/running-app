@@ -5,11 +5,8 @@ export default function Header({
   year, yearOptions, setYear,
   type, typeOptions, setType,
   shoe, shoeOptions, setShoe,
-  radius, setRadius,
-  blur, setBlur,
-  palette, setPalette, gradients,
   lineColorName, setLineColorName, lineColors,
-  showLines, setShowLines,
+  onFile,
 }) {
   return (
     <div
@@ -52,7 +49,6 @@ export default function Header({
         >
           Insights
         </button>
-        {/* NEW: Personal Best tab */}
         <button
           onClick={() => setTab("pb")}
           style={{
@@ -106,43 +102,6 @@ export default function Header({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <label style={{ fontSize: 14 }}>Radius</label>
-        <input
-          type="range"
-          min={4}
-          max={30}
-          value={radius}
-          onChange={(e) => setRadius(Number(e.target.value))}
-        />
-        <span style={{ fontSize: 14, width: 24, textAlign: "center" }}>{radius}</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <label style={{ fontSize: 14 }}>Blur</label>
-        <input
-          type="range"
-          min={4}
-          max={40}
-          value={blur}
-          onChange={(e) => setBlur(Number(e.target.value))}
-        />
-        <span style={{ fontSize: 14, width: 24, textAlign: "center" }}>{blur}</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <label style={{ fontSize: 14 }}>Palette</label>
-        <select
-          value={palette}
-          onChange={(e) => setPalette(e.target.value)}
-          style={{ border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 8px", fontSize: 14 }}
-        >
-          {Object.keys(gradients).map((k) => (
-            <option key={k} value={k}>{k}</option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <label style={{ fontSize: 14 }}>Line colour</label>
         <select
           value={lineColorName}
@@ -155,14 +114,8 @@ export default function Header({
         </select>
       </div>
 
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
-        <input
-          type="checkbox"
-          checked={showLines}
-          onChange={(e) => setShowLines(e.target.checked)}
-        />
-        Show lines
-      </label>
+      {/* Optional file input (kept, since you were already wiring onFile) */}
+      {/* <input type="file" accept="application/geo+json,application/json" onChange={onFile} /> */}
     </div>
   );
 }

@@ -1,35 +1,10 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
-function metersToKm(m) {
-  if (m == null) return "";
-  return (m / 1000).toFixed(2);
-}
-function formatPace(secondsPerKm) {
-  if (!secondsPerKm || !isFinite(secondsPerKm)) return "";
-  const m = Math.floor(secondsPerKm / 60);
-  const s = Math.round(secondsPerKm % 60);
-  return `${m}:${s.toString().padStart(2, "0")}/km`;
-}
-function formatDuration(sec) {
-  if (sec == null) return "";
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  return h > 0
-    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
-    : `${m}:${s.toString().padStart(2, "0")}`;
-}
-function formatDate(iso) {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  } catch {
-    return "";
-  }
-}
-function formatElevation(m) {
-  if (m == null) return "";
-  return `${Math.round(m)} m`;
-}
+function metersToKm(m) { if (m == null) return ""; return (m / 1000).toFixed(2); }
+function formatPace(secondsPerKm) { if (!secondsPerKm || !isFinite(secondsPerKm)) return ""; const m = Math.floor(secondsPerKm / 60); const s = Math.round(secondsPerKm % 60); return `${m}:${s.toString().padStart(2, "0")}/km`; }
+function formatDuration(sec) { if (sec == null) return ""; const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); const s = Math.floor(sec % 60); return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}` : `${m}:${s.toString().padStart(2, "0")}`; }
+function formatDate(iso) { try { return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); } catch { return ""; } }
+function formatElevation(m) { if (m == null) return ""; return `${Math.round(m)} m`; }
 
 const LONG_RUN_SECONDS = 70 * 60; // 1h10m
 const WORKOUT_PACE_S_PER_KM = 240; // faster than 4:00/km
@@ -39,19 +14,19 @@ export default function RecentRunsList({
   selectedId,
   onSelect,
   onClear,
-  pageSize = 10,
+  pageSize = 50,
 }) {
   const [expandedId, setExpandedId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(pageSize);
 
-  // --- Filters ---
+  // Filtersƒ
   const [kindFilter, setKindFilter] = useState("all"); // "all" | "workout" | "long" | "jog"
-  const [shoeFilter, setShoeFilter] = useState("All"); // shoe label or "All"
+  const [shoeFilter, setShoeFilter] = useState("All");
 
-  // Build base list (cap to 100 most recent to keep the UI snappy)
-  const baseList = useMemo(() => (items || []).slice(0, 100), [items]);
+  // Base list (cap to 300 to match parent)
+  const baseList = useMemo(() => (items || []).slice(0, 300), [items]);
 
-  // Shoe options derived from data
+  // Shoe options
   const shoeOptions = useMemo(() => {
     const labels = new Set();
     for (const it of baseList) {
@@ -61,7 +36,7 @@ export default function RecentRunsList({
     return ["All", ...Array.from(labels).sort((a, b) => a.localeCompare(b))];
   }, [baseList]);
 
-  // Helper classifiers (computed per item)
+  // Classifier
   const classify = useCallback((it) => {
     const durationSec = it.moving_time ?? it.elapsed_time ?? 0;
     const secPerKm = it.average_speed
@@ -80,20 +55,14 @@ export default function RecentRunsList({
   const filteredList = useMemo(() => {
     return baseList.filter((it) => {
       const { isWorkout, isLong, isJog, shoeLabel } = classify(it);
-
-      // shoe filter
       if (shoeFilter !== "All" && shoeLabel !== shoeFilter) return false;
-
-      // kind filter
       if (kindFilter === "workout" && !isWorkout) return false;
       if (kindFilter === "long" && !isLong) return false;
       if (kindFilter === "jog" && !isJog) return false;
-
       return true;
     });
   }, [baseList, classify, shoeFilter, kindFilter]);
 
-  // Reset pagination/expansion when filters change
   useEffect(() => {
     setVisibleCount(pageSize);
     setExpandedId(null);
@@ -113,12 +82,10 @@ export default function RecentRunsList({
     setExpandedId(null);
   };
 
-  const loadMore = () => {
-    setVisibleCount((c) => Math.min(c + pageSize, filteredList.length));
-  };
+  const loadMore = () => setVisibleCount((c) => Math.min(c + pageSize, filteredList.length));
 
   return (
-    <div
+    <aside
       style={{
         height: "100%",
         minHeight: 0,
@@ -128,19 +95,27 @@ export default function RecentRunsList({
         background: "#fff",
       }}
     >
-      {/* Header + Filters */}
+      {/* Sticky header */}
       <div
         style={{
-          padding: "10px 12px 8px",
+          position: "sticky",
+          top: 0,
+          zIndex: 5,
+          background: "#fff",
           borderBottom: "1px solid #e5e7eb",
-          display: "grid",
-          gridTemplateColumns: "1fr",
-          gap: 8,
-          flexShrink: 0,
+          boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Last 100 runs</h3>
+        {/* Row 1: title + clear */}
+        <div
+          style={{
+            padding: "10px 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Last 300 runs</h3>
           <div style={{ fontSize: 12, color: "#64748b" }}>
             Showing {visible.length} of {filteredList.length}
           </div>
@@ -154,16 +129,17 @@ export default function RecentRunsList({
                 border: "1px solid #e5e7eb",
                 background: "#f8fafc",
                 cursor: "pointer",
+                fontWeight: 600,
               }}
-              title="Show all again"
+              title="Clear selection"
             >
-              Clear selection
+              Clear
             </button>
           )}
         </div>
 
-        {/* Filter row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {/* Row 2: filters */}
+        <div style={{ padding: "0 12px 10px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label style={{ fontSize: 12, color: "#64748b", minWidth: 34 }}>Kind</label>
             <select
@@ -181,7 +157,7 @@ export default function RecentRunsList({
               <option value="all">All</option>
               <option value="workout">Workout (&lt; 4:00/km)</option>
               <option value="long">Long run (≥ 1:10)</option>
-              <option value="jog">Jog (neither)</option>
+              <option value="jog">Jog</option>
             </select>
           </div>
 
@@ -207,7 +183,7 @@ export default function RecentRunsList({
         </div>
       </div>
 
-      {/* SCROLL REGION */}
+      {/* Scroll region */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {visible.map((item) => {
           const id = String(item.id);
@@ -220,7 +196,6 @@ export default function RecentRunsList({
           const durationSec = item.moving_time ?? item.elapsed_time;
           const durationStr = formatDuration(durationSec);
 
-          // Pace in s/km
           const secPerKm = item.average_speed
             ? (1000 / item.average_speed)
             : (item.moving_time && item.distance ? (item.moving_time / (item.distance / 1000)) : null);
@@ -229,7 +204,7 @@ export default function RecentRunsList({
           const elevStr = item.total_elevation_gain != null ? formatElevation(item.total_elevation_gain) : "";
           const hasMap = !!item.has_map;
 
-          // Classify for coloring
+          // Color coding
           const isWorkout = secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
           const isLong = (durationSec || 0) >= LONG_RUN_SECONDS;
 
@@ -237,13 +212,13 @@ export default function RecentRunsList({
           let borderCol = "transparent";
           let stripCol = "transparent";
           if (isWorkout) {
-            bg = "#fee2e2";        // light red
+            bg = "#fee2e2";
             borderCol = "#fecaca";
-            stripCol = "#f87171";  // red-400
+            stripCol = "#f87171";
           } else if (isLong) {
-            bg = "#dcfce7";        // light green
+            bg = "#dcfce7";
             borderCol = "#bbf7d0";
-            stripCol = "#4ade80";  // green-400
+            stripCol = "#4ade80";
           }
           const stripWidth = active ? 6 : (stripCol === "transparent" ? 0 : 4);
           const fallbackActiveStrip = active && stripCol === "transparent" ? "#6366f1" : stripCol;
@@ -281,13 +256,11 @@ export default function RecentRunsList({
                   </div>
                 </div>
 
-                {/* caret indicator */}
                 <div style={{ fontSize: 18, color: hasMap ? "#64748b" : "#cbd5e1", paddingLeft: 8 }}>
                   {expanded ? "▾" : "▸"}
                 </div>
               </button>
 
-              {/* Dropdown details */}
               {expanded && (
                 <div style={{ padding: "8px 12px 12px", background: "#f8fafc" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, fontSize: 13 }}>
@@ -310,7 +283,6 @@ export default function RecentRunsList({
           );
         })}
 
-        {/* Load more */}
         {canLoadMore && (
           <div style={{ padding: 12, display: "flex", justifyContent: "center" }}>
             <button
@@ -336,7 +308,7 @@ export default function RecentRunsList({
           </div>
         )}
       </div>
-    </div>
+    </aside>
   );
 }
 
