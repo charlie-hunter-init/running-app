@@ -40,7 +40,7 @@ export default function MapView({
   const selectedId = selectedFeature?.properties?.id ?? "none";
 
   // Line styles
-  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1.5, opacity: 0.8 }), [lineColor]);
+  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.5 }), [lineColor]);
   const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4,   opacity: 0.98 }), [highlightColor]);
 
   return (
