@@ -22,7 +22,7 @@ export default function Header({
       }}
     >
       <h1 style={{ fontSize: 20, fontWeight: 600, marginRight: "auto" }}>
-        Strava Global Heatmap
+        Global running Heatmap
       </h1>
 
       {/* Tabs */}

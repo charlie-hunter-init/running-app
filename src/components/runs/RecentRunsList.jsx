@@ -1,16 +1,33 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
 function metersToKm(m) { if (m == null) return ""; return (m / 1000).toFixed(2); }
-function formatPace(secondsPerKm) { if (!secondsPerKm || !isFinite(secondsPerKm)) return ""; const m = Math.floor(secondsPerKm / 60); const s = Math.round(secondsPerKm % 60); return `${m}:${s.toString().padStart(2, "0")}/km`; }
-function formatDuration(sec) { if (sec == null) return ""; const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); const s = Math.floor(sec % 60); return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}` : `${m}:${s.toString().padStart(2, "0")}`; }
-function formatDate(iso) { try { return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); } catch { return ""; } }
+function formatPace(secondsPerKm) {
+  if (!secondsPerKm || !isFinite(secondsPerKm)) return "";
+  const m = Math.floor(secondsPerKm / 60);
+  const s = Math.round(secondsPerKm % 60);
+  return `${m}:${s.toString().padStart(2, "0")}/km`;
+}
+function formatDuration(sec) {
+  if (sec == null) return "";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+    : `${m}:${s.toString().padStart(2, "0")}`;
+}
+function formatDate(iso) {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch { return ""; }
+}
 function formatElevation(m) { if (m == null) return ""; return `${Math.round(m)} m`; }
 
 const LONG_RUN_SECONDS = 70 * 60; // 1h10m
 const WORKOUT_PACE_S_PER_KM = 240; // faster than 4:00/km
 
 export default function RecentRunsList({
-  items,        // from runs_index.json (newest → oldest)
+  items,
   selectedId,
   onSelect,
   onClear,
@@ -19,14 +36,16 @@ export default function RecentRunsList({
   const [expandedId, setExpandedId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(pageSize);
 
-  // Filtersƒ
-  const [kindFilter, setKindFilter] = useState("all"); // "all" | "workout" | "long" | "jog"
+  // Splits lazy-load cache and state
+  const [splitsById, setSplitsById] = useState({});      // { [id]: Split[] }
+  const [splitsLoading, setSplitsLoading] = useState({}); // { [id]: true }
+  const [splitsError, setSplitsError] = useState({});     // { [id]: "msg" }
+
+  const [kindFilter, setKindFilter] = useState("all");
   const [shoeFilter, setShoeFilter] = useState("All");
 
-  // Base list (cap to 300 to match parent)
-  const baseList = useMemo(() => (items || []).slice(0, 300), [items]);
+  const baseList = useMemo(() => (items || []).slice(0, 1000), [items]);
 
-  // Shoe options
   const shoeOptions = useMemo(() => {
     const labels = new Set();
     for (const it of baseList) {
@@ -36,7 +55,6 @@ export default function RecentRunsList({
     return ["All", ...Array.from(labels).sort((a, b) => a.localeCompare(b))];
   }, [baseList]);
 
-  // Classifier
   const classify = useCallback((it) => {
     const durationSec = it.moving_time ?? it.elapsed_time ?? 0;
     const secPerKm = it.average_speed
@@ -51,7 +69,6 @@ export default function RecentRunsList({
     return { isWorkout, isLong, isJog, shoeLabel, durationSec, secPerKm };
   }, []);
 
-  // Apply filters
   const filteredList = useMemo(() => {
     return baseList.filter((it) => {
       const { isWorkout, isLong, isJog, shoeLabel } = classify(it);
@@ -71,11 +88,34 @@ export default function RecentRunsList({
   const visible = useMemo(() => filteredList.slice(0, visibleCount), [filteredList, visibleCount]);
   const canLoadMore = visibleCount < filteredList.length;
 
+  const fetchSplits = useCallback(async (id) => {
+    console.log("fetchSplits", id);
+    if (splitsById[id] || splitsLoading[id]) return;
+    setSplitsLoading((m) => ({ ...m, [id]: true }));
+    setSplitsError((m) => ({ ...m, [id]: undefined }));
+    try {
+      const res = await fetch(`/splits/${id}.json`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const splits = json?.splits || json?.splits_metric || [];
+      setSplitsById((m) => ({ ...m, [id]: splits }));
+    } catch (e) {
+      setSplitsError((m) => ({ ...m, [id]: "Failed to load splits" }));
+    } finally {
+      setSplitsLoading((m) => ({ ...m, [id]: false }));
+    }
+  }, [splitsById, splitsLoading]);
+
   const handleClickItem = useCallback((item) => {
     const id = String(item.id);
+    console.log("click item", id, item);
     onSelect?.(id);
-    setExpandedId((cur) => (cur === id ? null : id));
-  }, [onSelect]);
+    setExpandedId((cur) => {
+      const next = cur === id ? null : id;
+      if (next && item.has_splits) fetchSplits(id);
+      return next;
+    });
+  }, [onSelect, fetchSplits]);
 
   const handleClear = () => {
     onClear?.();
@@ -106,7 +146,6 @@ export default function RecentRunsList({
           boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
         }}
       >
-        {/* Row 1: title + clear */}
         <div
           style={{
             padding: "10px 12px",
@@ -115,7 +154,7 @@ export default function RecentRunsList({
             gap: 8,
           }}
         >
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Last 300 runs</h3>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Last 1000 runs</h3>
           <div style={{ fontSize: 12, color: "#64748b" }}>
             Showing {visible.length} of {filteredList.length}
           </div>
@@ -138,7 +177,7 @@ export default function RecentRunsList({
           )}
         </div>
 
-        {/* Row 2: filters */}
+        {/* Filters */}
         <div style={{ padding: "0 12px 10px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label style={{ fontSize: 12, color: "#64748b", minWidth: 34 }}>Kind</label>
@@ -192,6 +231,9 @@ export default function RecentRunsList({
 
           const name = item.name || "Run";
           const date = formatDate(item.start_date);
+          const location = item.location || "";
+          const dateLine = location ? `${date} — ${location}` : date;
+
           const kmStr = metersToKm(item.distance);
           const durationSec = item.moving_time ?? item.elapsed_time;
           const durationStr = formatDuration(durationSec);
@@ -204,7 +246,6 @@ export default function RecentRunsList({
           const elevStr = item.total_elevation_gain != null ? formatElevation(item.total_elevation_gain) : "";
           const hasMap = !!item.has_map;
 
-          // Color coding
           const isWorkout = secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
           const isLong = (durationSec || 0) >= LONG_RUN_SECONDS;
 
@@ -246,7 +287,7 @@ export default function RecentRunsList({
                     {name}
                   </div>
                   <div style={{ fontSize: 12, color: "#475569" }}>
-                    {date}
+                    {dateLine}
                     {!hasMap && <span style={{ marginLeft: 8, color: "#ef4444", fontWeight: 600 }}>(no map)</span>}
                   </div>
                   <div style={{ fontSize: 12, color: "#334155", marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -263,6 +304,7 @@ export default function RecentRunsList({
 
               {expanded && (
                 <div style={{ padding: "8px 12px 12px", background: "#f8fafc" }}>
+                  {/* Stats grid */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, fontSize: 13 }}>
                     <Detail label="Distance" value={kmStr ? `${kmStr} km` : "—"} />
                     <Detail label="Duration" value={durationStr || "—"} />
@@ -275,6 +317,53 @@ export default function RecentRunsList({
                       {item.type && <Detail label="Type" value={item.type} />}
                       {item.shoe_name && <Detail label="Shoe" value={item.shoe_name} />}
                       {!item.shoe_name && item.gear_name && <Detail label="Gear" value={item.gear_name} />}
+                    </div>
+                  )}
+
+                  {/* Splits */}
+                  {item.has_splits && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Splits</div>
+
+                      {splitsLoading[id] && (
+                        <div style={{ fontSize: 12, color: "#64748b" }}>Loading splits…</div>
+                      )}
+
+                      {splitsError[id] && (
+                        <div style={{ fontSize: 12, color: "#ef4444" }}>{splitsError[id]}</div>
+                      )}
+
+                      {!splitsLoading[id] && !splitsError[id] && (
+                        Array.isArray(splitsById[id]) && splitsById[id].length > 0 ? (
+                          <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+                            <thead>
+                              <tr style={{ textAlign: "left", color: "#64748b", background: "#f1f5f9" }}>
+                                <th style={{ padding: "6px 8px" }}>Km</th>
+                                <th style={{ padding: "6px 8px" }}>Time</th>
+                                <th style={{ padding: "6px 8px" }}>Pace</th>
+                                <th style={{ padding: "6px 8px" }}>Elev</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {splitsById[id].map((s, i) => {
+                                const km = s.split ?? (i + 1);
+                                const dKm = s.distance ? (s.distance / 1000) : 1;
+                                const spk = s.moving_time && dKm > 0 ? (s.moving_time / dKm) : null;
+                                return (
+                                  <tr key={i} style={{ borderTop: "1px solid #e5e7eb" }}>
+                                    <td style={{ padding: "6px 8px" }}>{km}</td>
+                                    <td style={{ padding: "6px 8px" }}>{formatDuration(s.moving_time ?? s.elapsed_time)}</td>
+                                    <td style={{ padding: "6px 8px" }}>{spk ? formatPace(spk) : "—"}</td>
+                                    <td style={{ padding: "6px 8px" }}>{formatElevation(s.elevation_difference)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div style={{ fontSize: 12, color: "#64748b" }}>No splits available.</div>
+                        )
+                      )}
                     </div>
                   )}
                 </div>

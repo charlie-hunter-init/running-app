@@ -131,7 +131,7 @@ export default function StravaHeatmapApp() {
   }
 
   // Sidebar: grab recent runs from index
-  const last300 = useMemo(() => (indexData?.items || []).slice(0, 300), [indexData]);
+  const last1000 = useMemo(() => (indexData?.items || []).slice(0, 1000), [indexData]);
 
   return (
     <div style={{ position: "fixed", inset: 0, display: "grid", gridTemplateRows: "auto 1fr", background: "#f8fafc", minWidth: 0, minHeight: 0 }}>
@@ -167,7 +167,7 @@ export default function StravaHeatmapApp() {
 
             {/* Right sidebar with sticky header inside component */}
             <RecentRunsList
-              items={last300}
+              items={last1000}
               selectedId={selectedRunId}
               onSelect={(id) => selectRun(id)}
               onClear={clearSelection}

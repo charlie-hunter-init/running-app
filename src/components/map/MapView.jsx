@@ -2,11 +2,17 @@ import React, { useMemo } from "react";
 import { MapContainer, TileLayer, GeoJSON, LayersControl, Pane } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.heat"; // plugin
+import HeatmapLayer from "./HeatmapLayer";
 import FitToBounds from "./FitToBounds";
 import MapInvalidateOnReady from "./MapInvalidateOnReady";
 
 export default function MapView({
   filtered,
+  heatPoints,
+  radius,
+  blur,
+  gradient,
   lineColor,
   selectedFeature,
   highlightColor = "#ff6a00",
@@ -34,7 +40,7 @@ export default function MapView({
   const selectedId = selectedFeature?.properties?.id ?? "none";
 
   // Line styles
-  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1.5, opacity: 0.85 }), [lineColor]);
+  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1.5, opacity: 0.8 }), [lineColor]);
   const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4,   opacity: 0.98 }), [highlightColor]);
 
   return (
@@ -88,7 +94,17 @@ export default function MapView({
         </LayersControl.BaseLayer>
       </LayersControl>
 
-      {/* Base lines: very high z, always on top by default (no heat layer exists now) */}
+      {/* Heatmap: dedicated low-z pane */}
+      <Pane name="heat" style={{ zIndex: 300 }} />
+      <HeatmapLayer
+        pane="heat"               // If your HeatmapLayer forwards this to L.heatLayer options
+        points={heatPoints}
+        radius={radius}
+        blur={blur}
+        gradient={gradient}
+      />
+
+      {/* Base lines: very high z, always on top of heat */}
       <Pane name="base-lines" style={{ zIndex: 1000 }} />
       {filtered.length > 0 && (
         <GeoJSON
