@@ -51,8 +51,9 @@ function rangeCutoff(range) {
 
 // -- Component --------------------------------------------------------
 export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
-  const { data, weekKeys } = React.useMemo(() => {
-    if (!features?.length) return { data: [], weekKeys: [] };
+  const { data, weekKeys, currentWeekKey } = React.useMemo(() => {
+    if (!features?.length) return { data: [], weekKeys: [], currentWeekKey: null };
+
     const cutoff = rangeCutoff(range);
     const weeksMap = new Map(); // weekKey -> [Mon..Sun] km totals
 
@@ -70,6 +71,12 @@ export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
       arr[p.dowIndex] += getKm(f);
     }
 
+    // Ensure the current NZ week is present even if there are no activities yet.
+    const currentWeekKey = nzWeekKey(new Date());
+    if (!weeksMap.has(currentWeekKey)) {
+      weeksMap.set(currentWeekKey, Array(7).fill(0));
+    }
+
     const weekKeysAsc = Array.from(weeksMap.keys()).sort();
 
     const rows = DOW.map((label, i) => {
@@ -84,14 +91,19 @@ export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
         if (v < min) min = v;
         if (v > max) max = v;
       }
+      // Stats across visible weeks (includes zeros)
       const weeksCount = weekKeysAsc.length;
-      row.__avg = weeksCount ? sum / weeksCount : 0;                  // includes zeros
-      row.__min = weeksCount ? (isFinite(min) ? min : 0) : 0;         // includes zeros
-      row.__max = weeksCount ? (isFinite(max) ? max : 0) : 0;         // includes zeros
+      row.__avg = weeksCount ? sum / weeksCount : 0;
+      row.__min = weeksCount ? (isFinite(min) ? min : 0) : 0;
+      row.__max = weeksCount ? (isFinite(max) ? max : 0) : 0;
+
+      // New: value for the current NZ week on this day
+      row.__cur = weeksMap.get(currentWeekKey)?.[i] ?? 0;
+
       return row;
     });
 
-    return { data: rows, weekKeys: weekKeysAsc };
+    return { data: rows, weekKeys: weekKeysAsc, currentWeekKey };
   }, [features, range]);
 
   if (!data.length || !weekKeys.length) {
@@ -100,16 +112,18 @@ export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
 
   const newestIndex = weekKeys.length - 1;
 
-  // Tooltip: show Average, Max, and Min (still no per-week spam)
+  // Tooltip: include "This week" value for the hovered day
   const AvgTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     const row = payload[0]?.payload || {};
     const avg = Number(row.__avg || 0);
     const max = Number(row.__max || 0);
     const min = Number(row.__min || 0);
+    const cur = Number(row.__cur || 0);
     return (
       <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "8px 10px" }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
+        <div>This week: {cur.toFixed(1)} km</div>
         <div>Average: {avg.toFixed(1)} km</div>
         <div>Max: {max.toFixed(1)} km</div>
         <div>Min: {min.toFixed(1)} km</div>
@@ -132,6 +146,7 @@ export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
           <XAxis dataKey="day" />
           <YAxis />
           <Tooltip content={<AvgTooltip />} />
+
           {/* Red average line */}
           <Line
             type="monotone"
@@ -141,7 +156,8 @@ export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
             strokeWidth={2}
             dot={false}
           />
-          {/* One line per week */}
+
+          {/* One line per week (kept as-is) */}
           {weekKeys.map((wk, i) => (
             <Line
               key={wk}
@@ -152,6 +168,17 @@ export default function WeeklyDayOfWeekLines({ features = [], range = "all" }) {
               strokeOpacity={i === newestIndex ? 1 : 0.5}
             />
           ))}
+
+          {/* New: explicit green overlay for the current NZ week */}
+          <Line
+            type="monotone"
+            dataKey="__cur"
+            name="This week"
+            stroke="#10b981"      // emerald-500
+            strokeWidth={3}
+            dot={false}
+            isAnimationActive={false}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>
