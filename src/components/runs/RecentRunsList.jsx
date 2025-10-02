@@ -29,7 +29,9 @@ const WORKOUT_PACE_S_PER_KM = 240; // faster than 4:00/km
 export default function RecentRunsList({
   items,
   selectedId,
+  selectedKm,
   onSelect,
+  onSelectSplit, // (runId: string, km: number)
   onClear,
   pageSize = 50,
 }) {
@@ -81,6 +83,7 @@ export default function RecentRunsList({
   }, [baseList, classify, shoeFilter, kindFilter]);
 
   useEffect(() => {
+    console.log("filters changed, resetting visible count and expandedId");
     setVisibleCount(pageSize);
     setExpandedId(null);
   }, [pageSize, kindFilter, shoeFilter]);
@@ -108,7 +111,8 @@ export default function RecentRunsList({
 
   const handleClickItem = useCallback((item) => {
     const id = String(item.id);
-    console.log("click item", id, item);
+    console.log(`handleClickItem ${item}`);
+    console.log(item)
     onSelect?.(id);
     setExpandedId((cur) => {
       const next = cur === id ? null : id;
@@ -116,6 +120,12 @@ export default function RecentRunsList({
       return next;
     });
   }, [onSelect, fetchSplits]);
+
+  const handleClickSplit = useCallback((runId, km) => {
+    // Ensure selection is on this run, then notify parent about km
+    if (selectedId !== runId) onSelect?.(runId);
+    onSelectSplit?.(runId, km);
+  }, [onSelect, onSelectSplit, selectedId]);
 
   const handleClear = () => {
     onClear?.();
@@ -349,12 +359,27 @@ export default function RecentRunsList({
                                 const km = s.split ?? (i + 1);
                                 const dKm = s.distance ? (s.distance / 1000) : 1;
                                 const spk = s.moving_time && dKm > 0 ? (s.moving_time / dKm) : null;
+
+                                const isActiveSplit = selectedId === id && selectedKm === km; // NEW
+                                const rowStyle = {
+                                  borderTop: "1px solid #e5e7eb",
+                                  cursor: "pointer",
+                                  background: isActiveSplit ? "#dbeafe" : "transparent", // light blue
+                                };
+                                const cellStrong = { fontWeight: isActiveSplit ? 600 : 400 }; // subtle emphasis
+                              
                                 return (
-                                  <tr key={i} style={{ borderTop: "1px solid #e5e7eb" }}>
-                                    <td style={{ padding: "6px 8px" }}>{km}</td>
-                                    <td style={{ padding: "6px 8px" }}>{formatDuration(s.moving_time ?? s.elapsed_time)}</td>
-                                    <td style={{ padding: "6px 8px" }}>{spk ? formatPace(spk) : "—"}</td>
-                                    <td style={{ padding: "6px 8px" }}>{formatElevation(s.elevation_difference)}</td>
+                                  <tr
+                                    key={i}
+                                    onClick={() => handleClickSplit(id, km)}
+                                    style={rowStyle}
+                                    title={`Highlight km ${km} on the map`}
+                                    aria-selected={isActiveSplit}
+                                  >
+                                    <td style={{ padding: "6px 8px", ...cellStrong }}>{km}</td>
+                                    <td style={{ padding: "6px 8px", ...cellStrong }}>{formatDuration(s.moving_time ?? s.elapsed_time)}</td>
+                                    <td style={{ padding: "6px 8px", ...cellStrong }}>{spk ? formatPace(spk) : "—"}</td>
+                                    <td style={{ padding: "6px 8px", ...cellStrong }}>{formatElevation(s.elevation_difference)}</td>
                                   </tr>
                                 );
                               })}

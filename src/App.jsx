@@ -40,6 +40,7 @@ export default function StravaHeatmapApp() {
   // Selection (for highlight-on-map)
   const [selectedRunId, setSelectedRunId] = useState(null);
   const [selectedFeature, setSelectedFeature] = useState(null);
+  const [selectedKm, setSelectedKm] = useState(null); // NEW: highlight specific km within selected run
 
   // Load data once
   useEffect(() => {
@@ -59,17 +60,25 @@ export default function StravaHeatmapApp() {
       if (!presentTypes.has(type)) setType("All");
     }
     if (year !== "All") {
-      const presentYears = new Set(features.map(f => {
-        const p = f.properties || {};
-        return p.year || (p.start_date ? new Date(p.start_date).getUTCFullYear().toString() : null);
-      }).filter(Boolean));
+      const presentYears = new Set(
+        features
+          .map(f => {
+            const p = f.properties || {};
+            return p.year || (p.start_date ? new Date(p.start_date).getUTCFullYear().toString() : null);
+          })
+          .filter(Boolean)
+      );
       if (!presentYears.has(year)) setYear("All");
     }
     if (shoe !== "All") {
-      const presentShoes = new Set(features.map(f => {
-        const p = f.properties || {};
-        return p.shoe_name || p.gear_name || p.gear_id || null;
-      }).filter(Boolean));
+      const presentShoes = new Set(
+        features
+          .map(f => {
+            const p = f.properties || {};
+            return p.shoe_name || p.gear_name || p.gear_id || null;
+          })
+          .filter(Boolean)
+      );
       if (!presentShoes.has(shoe)) setShoe("All");
     }
   }, [features, type, year, shoe]);
@@ -112,6 +121,7 @@ export default function StravaHeatmapApp() {
         setGeojson(data);
         setYear("All"); setType("All"); setShoe("All");
         setSelectedRunId(null); setSelectedFeature(null);
+        setSelectedKm(null);
       } catch {
         alert("Invalid GeoJSON file");
       }
@@ -124,17 +134,29 @@ export default function StravaHeatmapApp() {
     const key = String(id);
     setSelectedRunId(key);
     setSelectedFeature(idToFeature.get(key) || null); // may be null if has_map=false
+    setSelectedKm(null); // reset split highlight when switching runs
   }
   function clearSelection() {
     setSelectedRunId(null);
     setSelectedFeature(null);
+    setSelectedKm(null);
   }
 
   // Sidebar: grab recent runs from index
   const last1000 = useMemo(() => (indexData?.items || []).slice(0, 1000), [indexData]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, display: "grid", gridTemplateRows: "auto 1fr", background: "#f8fafc", minWidth: 0, minHeight: 0 }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "grid",
+        gridTemplateRows: "auto 1fr",
+        background: "#f8fafc",
+        minWidth: 0,
+        minHeight: 0,
+      }}
+    >
       <Header
         tab={tab}
         setTab={setTab}
@@ -163,13 +185,16 @@ export default function StravaHeatmapApp() {
               lineColor={lineColor}
               selectedFeature={selectedFeature}
               highlightColor="#ff6a00"
+              selectedKm={selectedKm}
+              selectedKmColor="#3b82f6" // optional override (blue-600)
             />
-
             {/* Right sidebar with sticky header inside component */}
             <RecentRunsList
               items={last1000}
               selectedId={selectedRunId}
+              selectedKm={selectedKm}                 // NEW
               onSelect={(id) => selectRun(id)}
+              onSelectSplit={(runId, km) => { selectRun(runId); setSelectedKm(km); }}
               onClear={clearSelection}
               pageSize={50}
             />

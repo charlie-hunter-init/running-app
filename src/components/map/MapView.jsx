@@ -7,6 +7,66 @@ import HeatmapLayer from "./HeatmapLayer";
 import FitToBounds from "./FitToBounds";
 import MapInvalidateOnReady from "./MapInvalidateOnReady";
 
+function haversineMeters(a, b) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const [lng1, lat1] = a, [lng2, lat2] = b;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const s =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+function interpolate(a, b, t) {
+  // linear in lon/lat space (good enough for short segments)
+  const [lng1, lat1] = a, [lng2, lat2] = b;
+  return [lng1 + (lng2 - lng1) * t, lat1 + (lat2 - lat1) * t];
+}
+
+function sliceLineByDistance(coords, fromM, toM) {
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  if (toM <= fromM) return null;
+  let acc = 0;
+  const out = [];
+  let started = false;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i];
+    const b = coords[i + 1];
+    const segLen = haversineMeters(a, b);
+    const nextAcc = acc + segLen;
+
+    // If the target window intersects this segment
+    if (nextAcc > fromM && acc < toM) {
+      // Start point
+      let startPt;
+      if (!started) {
+        if (fromM <= acc) {
+          startPt = a;
+        } else {
+          const t = (fromM - acc) / segLen;
+          startPt = interpolate(a, b, t);
+        }
+        out.push(startPt);
+        started = true;
+      }
+      // End point (may be within this segment)
+      if (toM <= nextAcc) {
+        const t2 = (toM - acc) / segLen;
+        out.push(interpolate(a, b, t2));
+        break;
+      } else {
+        // whole segment inside window
+        out.push(b);
+      }
+    }
+    acc = nextAcc;
+  }
+  return out.length >= 2 ? out : null;
+}
+
 export default function MapView({
   filtered,
   heatPoints,
@@ -16,6 +76,8 @@ export default function MapView({
   lineColor,
   selectedFeature,
   highlightColor = "#ff6a00",
+  selectedKm = null,
+  selectedKmColor = "#60a5fa",
 }) {
   // Base data = all filtered runs
   const baseGeojsonData = useMemo(
@@ -29,6 +91,25 @@ export default function MapView({
     [selectedFeature]
   );
 
+  // Derived: selected km segment as its own LineString
+  const selectedKmFeature = useMemo(() => {
+    if (!selectedFeature || !selectedKm) return null;
+    const g = selectedFeature.geometry || {};
+    const type = g.type;
+    const coords = type === "LineString" ? g.coordinates
+      : (type === "MultiLineString" ? g.coordinates.flat() : null);
+    if (!coords) return null;
+    const fromM = (selectedKm - 1) * 1000;
+    const toM = selectedKm * 1000;
+    const sub = sliceLineByDistance(coords, fromM, toM);
+    if (!sub) return null;
+    return {
+      type: "Feature",
+      properties: { id: selectedFeature?.properties?.id, km: selectedKm },
+      geometry: { type: "LineString", coordinates: sub },
+    };
+  }, [selectedFeature, selectedKm]);
+
   // Force base layer to remount whenever 'filtered' changes (e.g., after fetch)
   const baseKey = useMemo(() => {
     const len = filtered.length;
@@ -41,7 +122,17 @@ export default function MapView({
 
   // Line styles
   const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.5 }), [lineColor]);
-  const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4,   opacity: 0.98 }), [highlightColor]);
+  const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4, opacity: 0.98 }), [highlightColor]);
+  //const kmStyle   = useMemo(() => ({ color: highlightColor, weight: 7, opacity: 1 }), [highlightColor]);
+  const kmStyle   = useMemo(
+  () => ({ color: selectedKmColor, weight: 7, opacity: 1, lineJoin: "round", lineCap: "round" }),
+  [selectedKmColor]
+  );
+  // Which geometry to fit to
+  const fitFeatures = useMemo(() => {
+    if (selectedKmFeature) return [selectedKmFeature];
+    return selectedFeature ? [selectedFeature] : filtered;
+  }, [selectedKmFeature, selectedFeature, filtered]);
 
   return (
     <MapContainer
@@ -50,7 +141,7 @@ export default function MapView({
       zoom={2}
       minZoom={2}
       worldCopyJump
-      preferCanvas={true}        // Canvas = fewer DOM nodes, faster
+      preferCanvas={true}
       wheelDebounceTime={40}
       updateWhenZooming={false}
       updateWhenIdle={true}
@@ -96,13 +187,7 @@ export default function MapView({
 
       {/* Heatmap: dedicated low-z pane */}
       <Pane name="heat" style={{ zIndex: 300 }} />
-      <HeatmapLayer
-        pane="heat"               // If your HeatmapLayer forwards this to L.heatLayer options
-        points={heatPoints}
-        radius={radius}
-        blur={blur}
-        gradient={gradient}
-      />
+      <HeatmapLayer pane="heat" points={heatPoints} radius={radius} blur={blur} gradient={gradient} />
 
       {/* Base lines: very high z, always on top of heat */}
       <Pane name="base-lines" style={{ zIndex: 1000 }} />
@@ -121,7 +206,7 @@ export default function MapView({
         />
       )}
 
-      {/* Selected overlay: highest of all */}
+      {/* Selected overlay: higher */}
       <Pane name="selected-line" style={{ zIndex: 1100 }} />
       {selectedGeojsonData && (
         <GeoJSON
@@ -138,11 +223,25 @@ export default function MapView({
         />
       )}
 
-      {/* Fit to selected if present; else fit to all */}
-      <FitToBounds
-        features={selectedFeature ? [selectedFeature] : filtered}
-        maxZoom={14}
-      />
+      {/* Selected KM overlay: highest */}
+      <Pane name="selected-km" style={{ zIndex: 1150 }} />
+      {selectedKmFeature && (
+        <GeoJSON
+          key={`selected-km-${selectedId}-${selectedKm}`}
+          pane="selected-km"
+          data={{ type: "FeatureCollection", features: [selectedKmFeature] }}
+          style={kmStyle}
+          renderer={L.canvas()}
+          interactive={false}
+          smoothFactor={0}
+          whenCreated={(layer) => {
+            try { layer.bringToFront(); } catch {}
+          }}
+        />
+      )}
+
+      {/* Fit to selected km if present; else selected; else all */}
+      <FitToBounds features={fitFeatures} maxZoom={14} />
     </MapContainer>
   );
 }
