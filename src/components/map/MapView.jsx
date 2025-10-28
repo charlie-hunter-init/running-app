@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef, useEffect } from "react";
 import { MapContainer, TileLayer, GeoJSON, LayersControl, Pane } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -21,7 +21,6 @@ function haversineMeters(a, b) {
 }
 
 function interpolate(a, b, t) {
-  // linear in lon/lat space (good enough for short segments)
   const [lng1, lat1] = a, [lng2, lat2] = b;
   return [lng1 + (lng2 - lng1) * t, lat1 + (lat2 - lat1) * t];
 }
@@ -38,9 +37,7 @@ function sliceLineByDistance(coords, fromM, toM) {
     const segLen = haversineMeters(a, b);
     const nextAcc = acc + segLen;
 
-    // If the target window intersects this segment
     if (nextAcc > fromM && acc < toM) {
-      // Start point
       let startPt;
       if (!started) {
         if (fromM <= acc) {
@@ -52,13 +49,11 @@ function sliceLineByDistance(coords, fromM, toM) {
         out.push(startPt);
         started = true;
       }
-      // End point (may be within this segment)
       if (toM <= nextAcc) {
         const t2 = (toM - acc) / segLen;
         out.push(interpolate(a, b, t2));
         break;
       } else {
-        // whole segment inside window
         out.push(b);
       }
     }
@@ -118,21 +113,31 @@ export default function MapView({
     return `base-${len}-${firstId}-${lastId}`;
   }, [filtered]);
 
-  const selectedId = selectedFeature?.properties?.id ?? "none";
+  // Track selected ID and remember the previous one
+  const selectedId = selectedFeature?.properties?.id ?? null;
+  const prevSelectedIdRef = useRef(null);
+  const clearedSelection = prevSelectedIdRef.current != null && selectedId == null;
+  useEffect(() => {
+    prevSelectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   // Line styles
   const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.5 }), [lineColor]);
   const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4, opacity: 0.98 }), [highlightColor]);
-  //const kmStyle   = useMemo(() => ({ color: highlightColor, weight: 7, opacity: 1 }), [highlightColor]);
   const kmStyle   = useMemo(
-  () => ({ color: selectedKmColor, weight: 7, opacity: 1, lineJoin: "round", lineCap: "round" }),
-  [selectedKmColor]
+    () => ({ color: selectedKmColor, weight: 7, opacity: 1, lineJoin: "round", lineCap: "round" }),
+    [selectedKmColor]
   );
+
   // Which geometry to fit to
   const fitFeatures = useMemo(() => {
+    // If the user has just clicked "Clear", do not refit (prevents zooming out).
+    if (clearedSelection) return [];
     if (selectedKmFeature) return [selectedKmFeature];
     return selectedFeature ? [selectedFeature] : filtered;
-  }, [selectedKmFeature, selectedFeature, filtered]);
+  }, [clearedSelection, selectedKmFeature, selectedFeature, filtered]);
+
+  const selectedKeyId = selectedId ?? "none";
 
   return (
     <MapContainer
@@ -210,7 +215,7 @@ export default function MapView({
       <Pane name="selected-line" style={{ zIndex: 1100 }} />
       {selectedGeojsonData && (
         <GeoJSON
-          key={`selected-${selectedId}`}
+          key={`selected-${selectedKeyId}`}
           pane="selected-line"
           data={selectedGeojsonData}
           style={hiStyle}
@@ -227,7 +232,7 @@ export default function MapView({
       <Pane name="selected-km" style={{ zIndex: 1150 }} />
       {selectedKmFeature && (
         <GeoJSON
-          key={`selected-km-${selectedId}-${selectedKm}`}
+          key={`selected-km-${selectedKeyId}-${selectedKm}`}
           pane="selected-km"
           data={{ type: "FeatureCollection", features: [selectedKmFeature] }}
           style={kmStyle}
@@ -240,7 +245,7 @@ export default function MapView({
         />
       )}
 
-      {/* Fit to selected km if present; else selected; else all */}
+      {/* Fit to selected km if present; else selected; else all (but skip once after Clear) */}
       <FitToBounds features={fitFeatures} maxZoom={14} />
     </MapContainer>
   );

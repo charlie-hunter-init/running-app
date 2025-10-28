@@ -25,6 +25,7 @@ function formatElevation(m) { if (m == null) return ""; return `${Math.round(m)}
 
 const LONG_RUN_SECONDS = 70 * 60; // 1h10m
 const WORKOUT_PACE_S_PER_KM = 240; // faster than 4:00/km
+const WALK_PACE_S_PER_KM = 9 * 60; // > 9:00/km is a walk
 
 export default function RecentRunsList({
   items,
@@ -63,18 +64,20 @@ export default function RecentRunsList({
       ? (1000 / it.average_speed)
       : (it.moving_time && it.distance ? (it.moving_time / (it.distance / 1000)) : null);
 
-    const isWorkout = secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
-    const isLong = durationSec >= LONG_RUN_SECONDS;
-    const isJog = !isWorkout && !isLong;
+    const isWalk = secPerKm != null && secPerKm > WALK_PACE_S_PER_KM; // strictly greater than 9:00/km
+    const isWorkout = !isWalk && secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
+    const isLong = !isWalk && durationSec >= LONG_RUN_SECONDS;
+    const isJog = !isWalk && !isWorkout && !isLong;
 
     const shoeLabel = it.shoe_name || it.gear_name || "(no shoe)";
-    return { isWorkout, isLong, isJog, shoeLabel, durationSec, secPerKm };
+    return { isWalk, isWorkout, isLong, isJog, shoeLabel, durationSec, secPerKm };
   }, []);
 
   const filteredList = useMemo(() => {
     return baseList.filter((it) => {
-      const { isWorkout, isLong, isJog, shoeLabel } = classify(it);
+      const { isWalk, isWorkout, isLong, isJog, shoeLabel } = classify(it);
       if (shoeFilter !== "All" && shoeLabel !== shoeFilter) return false;
+      if (kindFilter === "walk" && !isWalk) return false;
       if (kindFilter === "workout" && !isWorkout) return false;
       if (kindFilter === "long" && !isLong) return false;
       if (kindFilter === "jog" && !isJog) return false;
@@ -204,6 +207,7 @@ export default function RecentRunsList({
               }}
             >
               <option value="all">All</option>
+              <option value="walk">Walk (&gt; 9:00/km)</option>
               <option value="workout">Workout (&lt; 4:00/km)</option>
               <option value="long">Long run (≥ 1:10)</option>
               <option value="jog">Jog</option>
@@ -256,13 +260,20 @@ export default function RecentRunsList({
           const elevStr = item.total_elevation_gain != null ? formatElevation(item.total_elevation_gain) : "";
           const hasMap = !!item.has_map;
 
-          const isWorkout = secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
-          const isLong = (durationSec || 0) >= LONG_RUN_SECONDS;
+          // --- Classification for styling ---
+          const isWalk = secPerKm != null && secPerKm > WALK_PACE_S_PER_KM;
+          const isWorkout = !isWalk && secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
+          const isLong = !isWalk && (durationSec || 0) >= LONG_RUN_SECONDS;
 
           let bg = "transparent";
           let borderCol = "transparent";
           let stripCol = "transparent";
-          if (isWorkout) {
+          if (isWalk) {
+            // light blue
+            bg = "#dbeafe";
+            borderCol = "#bfdbfe";
+            stripCol = "#60a5fa";
+          } else if (isWorkout) {
             bg = "#fee2e2";
             borderCol = "#fecaca";
             stripCol = "#f87171";

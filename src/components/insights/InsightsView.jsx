@@ -6,6 +6,8 @@ import ShoeTable from "./ShoeTable";
 import StreakTracker from "./StreakTracker";
 import MonthlyDistanceBars from "./MonthlyDistanceBars";
 import WeeklyDayOfWeekLines from "./WeeklyDayOfWeekLines";
+import StreakTimelinePanel from "./StreakTimelinePanel"; 
+//import CalendarMileageFill from "../calendar/CalendarMileageDots"; 
 
 export default function InsightsView({ stats, features, filtered, weeklyRange, setWeeklyRange }) {
   const cardStyle = { background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 12 };
@@ -59,14 +61,20 @@ export default function InsightsView({ stats, features, filtered, weeklyRange, s
 
       {/* Charts & tables layout */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 }}>
-        {/* Left column: Weekly → Monthly → Extra */}
+        {/* Left column: Weekly → DOW → Monthly → Streak timeline (NEW) → Extra */}
         <div style={{ display: "grid", gap: 16, alignContent: "start", minWidth: 0 }}>
+
           <WeeklyMileageChart weekly={stats?.weekly || {}} range={weeklyRange} />
           <WeeklyDayOfWeekLines features={filtered} range={weeklyRange} />
+          <StreakTimelinePanel features={filtered} type="Run" maxStreaks={8}/>
           <MonthlyDistanceBars features={filtered} range={weeklyRange} />
           
           
-          {/* Extra chart placeholder (same look/height as Monthly) */}
+          {/* <CalendarMileageFill features={filtered} maxKmForScale={30} onDayClick={(key, km) => console.log("Clicked", key, km)}/> */}
+
+
+
+          {/* Extra chart placeholder (kept) */}
           <div style={{ ...cardStyle, height: 260 }}>
             <h3 style={{ margin: "0 0 8px 0", fontSize: 16 }}>Add another chart</h3>
             <div style={{ fontSize: 12, color: "#6b7280" }}>
@@ -75,11 +83,9 @@ export default function InsightsView({ stats, features, filtered, weeklyRange, s
           </div>
         </div>
 
-        {/* Right column: Shoes → Streak */}
+        {/* Right column: Streak summary cards → Shoes */}
         <div style={{ display: "grid", gap: 16, alignContent: "start", minWidth: 0 }}>
-          <StreakTracker features={features} />
           <ShoeTable byShoe={stats?.byShoe || {}} />
-          
         </div>
       </div>
 

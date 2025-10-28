@@ -5,25 +5,25 @@ import MapView from "./components/map/MapView";
 import InsightsView from "./components/insights/InsightsView";
 import PersonalBestView from "./components/personalBest/PersonalBestView";
 import RecentRunsList from "./components/runs/RecentRunsList";
+import CalendarView from "./components/calendar/CalendarView"; // NEW
 
 const SIDEBAR_WIDTH = 340; // keep the map big
 
 export default function StravaHeatmapApp() {
-  const [tab, setTab] = useState("map");
+  const [tab, setTab] = useState("map"); // values: map | insights | calendar | pb
 
   const [geojson, setGeojson] = useState(null);
   const [stats, setStats] = useState(null);
   const [pb, setPb] = useState(null);
   const [indexData, setIndexData] = useState(null);
 
-  // Filters (default to All so nothing is hidden at startup)
+  // Filters
   const [year, setYear] = useState("All");
   const [type, setType] = useState("All");
   const [shoe, setShoe] = useState("All");
-
   const [weeklyRange, setWeeklyRange] = useState("all");
 
-  // Line colors
+  // Line colours
   const lineColors = React.useMemo(
     () => ({
       "Dark Blue": "#0b3d91",
@@ -37,10 +37,10 @@ export default function StravaHeatmapApp() {
   const [lineColorName, setLineColorName] = useState("White");
   const lineColor = lineColors[lineColorName];
 
-  // Selection (for highlight-on-map)
+  // Selection for map
   const [selectedRunId, setSelectedRunId] = useState(null);
   const [selectedFeature, setSelectedFeature] = useState(null);
-  const [selectedKm, setSelectedKm] = useState(null); // NEW: highlight specific km within selected run
+  const [selectedKm, setSelectedKm] = useState(null);
 
   // Load data once
   useEffect(() => {
@@ -52,15 +52,15 @@ export default function StravaHeatmapApp() {
 
   const features = geojson?.features || [];
 
-  // Safety: relax filters if they eliminate everything due to mismatched labels
+  // Safety: relax filters if they eliminate everything
   useEffect(() => {
     if (!features.length) return;
     if (type !== "All") {
-      const presentTypes = new Set(features.map(f => f?.properties?.type).filter(Boolean));
-      if (!presentTypes.has(type)) setType("All");
+      const present = new Set(features.map(f => f?.properties?.type).filter(Boolean));
+      if (!present.has(type)) setType("All");
     }
     if (year !== "All") {
-      const presentYears = new Set(
+      const present = new Set(
         features
           .map(f => {
             const p = f.properties || {};
@@ -68,10 +68,10 @@ export default function StravaHeatmapApp() {
           })
           .filter(Boolean)
       );
-      if (!presentYears.has(year)) setYear("All");
+      if (!present.has(year)) setYear("All");
     }
     if (shoe !== "All") {
-      const presentShoes = new Set(
+      const present = new Set(
         features
           .map(f => {
             const p = f.properties || {};
@@ -79,11 +79,11 @@ export default function StravaHeatmapApp() {
           })
           .filter(Boolean)
       );
-      if (!presentShoes.has(shoe)) setShoe("All");
+      if (!present.has(shoe)) setShoe("All");
     }
   }, [features, type, year, shoe]);
 
-  // Lookup for selection → feature
+  // Map id->feature
   const idToFeature = useMemo(() => {
     const m = new Map();
     for (const f of features) {
@@ -97,7 +97,7 @@ export default function StravaHeatmapApp() {
   const shoeOptions = useMemo(() => ["All", ...shoesFromFeatures(features)], [features]);
   const typeOptions = useMemo(() => ["All", ...typesFromFeatures(features)], [features]);
 
-  // Apply filters (for map layers)
+  // Apply filters for map/analytics
   const filtered = useMemo(() => {
     return features.filter((f) => {
       const p = f.properties || {};
@@ -120,8 +120,7 @@ export default function StravaHeatmapApp() {
         const data = JSON.parse(reader.result);
         setGeojson(data);
         setYear("All"); setType("All"); setShoe("All");
-        setSelectedRunId(null); setSelectedFeature(null);
-        setSelectedKm(null);
+        setSelectedRunId(null); setSelectedFeature(null); setSelectedKm(null);
       } catch {
         alert("Invalid GeoJSON file");
       }
@@ -133,8 +132,8 @@ export default function StravaHeatmapApp() {
   function selectRun(id) {
     const key = String(id);
     setSelectedRunId(key);
-    setSelectedFeature(idToFeature.get(key) || null); // may be null if has_map=false
-    setSelectedKm(null); // reset split highlight when switching runs
+    setSelectedFeature(idToFeature.get(key) || null);
+    setSelectedKm(null);
   }
   function clearSelection() {
     setSelectedRunId(null);
@@ -142,7 +141,6 @@ export default function StravaHeatmapApp() {
     setSelectedKm(null);
   }
 
-  // Sidebar: grab recent runs from index
   const last1000 = useMemo(() => (indexData?.items || []).slice(0, 1000), [indexData]);
 
   return (
@@ -179,20 +177,18 @@ export default function StravaHeatmapApp() {
               minHeight: 0,
             }}
           >
-            {/* Map takes all remaining space */}
             <MapView
               filtered={filtered}
               lineColor={lineColor}
               selectedFeature={selectedFeature}
               highlightColor="#ff6a00"
               selectedKm={selectedKm}
-              selectedKmColor="#3b82f6" // optional override (blue-600)
+              selectedKmColor="#3b82f6"
             />
-            {/* Right sidebar with sticky header inside component */}
             <RecentRunsList
               items={last1000}
               selectedId={selectedRunId}
-              selectedKm={selectedKm}                 // NEW
+              selectedKm={selectedKm}
               onSelect={(id) => selectRun(id)}
               onSelectSplit={(runId, km) => { selectRun(runId); setSelectedKm(km); }}
               onClear={clearSelection}
@@ -206,6 +202,11 @@ export default function StravaHeatmapApp() {
             filtered={filtered}
             weeklyRange={weeklyRange}
             setWeeklyRange={setWeeklyRange}
+          />
+        ) : tab === "calendar" ? (
+          <CalendarView
+            features={features}
+            filtered={filtered}
           />
         ) : (
           <PersonalBestView pb={pb} features={features} />

@@ -27,39 +27,10 @@ export default function Header({
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginRight: 16 }}>
-        <button
-          onClick={() => setTab("map")}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: tab === "map" ? "#eef2ff" : "#fff",
-          }}
-        >
-          Map
-        </button>
-        <button
-          onClick={() => setTab("insights")}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: tab === "insights" ? "#eef2ff" : "#fff",
-          }}
-        >
-          Insights
-        </button>
-        <button
-          onClick={() => setTab("pb")}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: tab === "pb" ? "#eef2ff" : "#fff",
-          }}
-        >
-          Personal Best
-        </button>
+        <TabButton label="Map"        isActive={tab === "map"}       onClick={() => setTab("map")} />
+        <TabButton label="Insights"   isActive={tab === "insights"}  onClick={() => setTab("insights")} />
+        <TabButton label="Calendar"   isActive={tab === "calendar"}  onClick={() => setTab("calendar")} />
+        <TabButton label="Personal Best" isActive={tab === "pb"}     onClick={() => setTab("pb")} />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -117,5 +88,24 @@ export default function Header({
       {/* Optional file input (kept, since you were already wiring onFile) */}
       {/* <input type="file" accept="application/geo+json,application/json" onChange={onFile} /> */}
     </div>
+  );
+}
+
+function TabButton({ label, isActive, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={isActive}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 6,
+        border: "1px solid #e5e7eb",
+        background: isActive ? "#eef2ff" : "#fff",
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
   );
 }
