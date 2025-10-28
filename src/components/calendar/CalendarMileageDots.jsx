@@ -1,26 +1,101 @@
 import React from "react";
 import { TZ, dayKeyFromDate } from "../../lib/streak";
 
+// ---- Thresholds
+const LONG_RUN_SECONDS = 70 * 60; // 1h10m
+const WORKOUT_PACE_SPK = 240;     // < 4:00 per km
+const WALK_PACE_SPK    = 540;     // >= 9:00 per km
+
+// Slice order for consistent pies/legend
+const KINDS = ["walk", "workout", "long", "jog"];
+
+const COLORS = {
+  walk:    { fill: "#93c5fd", edge: "#60a5fa", label: "Walk" },      // blue
+  workout: { fill: "#f87171", edge: "#ef4444", label: "Workout" },   // red
+  long:    { fill: "#f59e0b", edge: "#d97706", label: "Long" },      // amber
+  jog:     { fill: "#34d399", edge: "#059669", label: "Jog" },       // green
+};
+
+// ---------- Helpers ----------
+const num = (x) => (x == null || x === "" ? null : isFinite(+x) ? +x : null);
+
+function seconds(v) {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    const asNum = num(v);
+    if (asNum == null) return null;
+    v = asNum;
+  }
+  // Treat very large values as ms
+  if (v > 3_600_000) return Math.round(v / 1000);
+  if (v > 100000)     return Math.round(v / 1000);
+  return v;
+}
+
+/** Prefer `items` shape (runs_index.json), fallback to features.properties */
+function normaliseActivities(items, features) {
+  if (items && items.length) {
+    return items.map((it) => ({
+      id: String(it.id),
+      name: it.name,
+      start_date: it.start_date,
+      distance_m: it.distance ?? it.distance_m ?? null,   // metres
+      moving_time: it.moving_time ?? null,                 // seconds
+      elapsed_time: it.elapsed_time ?? null,               // seconds
+      average_speed: it.average_speed ?? null,             // m/s (already m/s in index)
+      type: it.type ?? it.sport_type ?? null,
+    }));
+  }
+  // Fallback to GeoJSON properties (may be sparse)
+  return (features || []).map((f) => {
+    const p = f?.properties || {};
+    return {
+      id: String(p.id ?? ""),
+      name: p.name,
+      start_date: p.start_date,
+      distance_m: p.distance ?? p.distance_m ?? null,
+      moving_time: p.moving_time ?? null,
+      elapsed_time: p.elapsed_time ?? null,
+      average_speed: p.average_speed ?? null,
+      type: p.type ?? p.sport_type ?? null,
+    };
+  });
+}
+
+/** Compute pace in sec/km using average_speed (m/s) or moving_time / distance */
+function paceSecPerKm(a) {
+  if (a?.average_speed) {
+    return 1000 / a.average_speed; // m/s -> s/km
+  }
+  if (a?.moving_time && a?.distance_m) {
+    return a.moving_time / (a.distance_m / 1000);
+  }
+  if (a?.elapsed_time && a?.distance_m) {
+    return a.elapsed_time / (a.distance_m / 1000);
+  }
+  return null;
+}
+
+// ---- SVG helpers for pie arcs (angles in degrees)
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const a = (angleDeg - 90) * (Math.PI / 180); // start at 12 o'clock
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+}
+function arcPath(cx, cy, r, startDeg, endDeg) {
+  const start = polarToCartesian(cx, cy, r, startDeg);
+  const end   = polarToCartesian(cx, cy, r, endDeg);
+  const largeArc = endDeg - startDeg <= 180 ? 0 : 1;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
+}
+
 /**
  * CalendarMileageFill
- * Circle-only monthly calendar that auto-fits to its parent (no scroll).
- *
- * Props:
- * - features: GeoJSON Feature[] (expects properties.start_date, properties.distance or distance_m)
- * - timeZone: string (default TZ)
- * - type: string (filter activity type; default "Run"; set ""/null for all)
- * - startFromLatest: boolean (default true; opens to most recent month with data)
- * - maxKmForScale: number (optional fixed scale; else uses 95th percentile)
- * - onDayClick?: (dateKey, km) => void
- * - title?: string
- * - minDotPx?: number (minimum circle diameter; default 10)
- * - labelMinPx?: number (show numeric label when dot ≥ this px; default 18)
- * - fitToContainer?: boolean (default true; computes cell size to avoid scrolling)
+ * Uses indexData.items (preferred) to ensure consistent classification with Activities/RecentRuns.
  */
 export default function CalendarMileageFill({
-  features,
+  items = [],            // <-- pass indexData?.items here
+  features,              // fallback only
   timeZone = TZ,
-  type = "Run",
   startFromLatest = true,
   maxKmForScale,
   onDayClick,
@@ -29,51 +104,75 @@ export default function CalendarMileageFill({
   labelMinPx = 18,
   fitToContainer = true,
 }) {
-  // ---- Aggregate km per day ----
-  const { byDayKm, latestDate } = React.useMemo(() => {
-    const m = new Map();
-    let latest = null;
-    for (const f of features || []) {
-      const p = f?.properties || {};
-      if (type && p.type !== type) continue;
-      const iso = p.start_date;
-      const distM = p.distance_m ?? p.distance ?? null;
-      if (!iso || distM == null) continue;
-      const d = new Date(iso);
-      const key = dayKeyFromDate(d, timeZone);
-      m.set(key, (m.get(key) || 0) + distM / 1000); // store km
-      if (!latest || d > latest) latest = d;
-    }
-    return { byDayKm: m, latestDate: latest || new Date() };
-  }, [features, timeZone, type]);
+  // Build unified activity list
+  const activities = React.useMemo(
+    () => normaliseActivities(items, features),
+    [items, features]
+  );
 
-  // ---- Month state ----
+  // Aggregate per-day using same rules as RecentRunsList
+  const { byDay, latestDate } = React.useMemo(() => {
+    const m = new Map(); // key -> { totalKm, walk, workout, long, jog }
+    let latest = null;
+
+    for (const a of activities) {
+      if (!a?.start_date) continue;
+
+      const d = new Date(a.start_date);
+      const key = dayKeyFromDate(d, timeZone);
+      if (!latest || d > latest) latest = d;
+
+      const distM = num(a.distance_m);
+      if (distM == null || distM <= 0) continue;
+
+      const km = distM / 1000;
+      const moving = seconds(a.moving_time ?? a.elapsed_time ?? null);
+
+      const secPerKm = paceSecPerKm(a);
+
+      // Classify: walk (pace ≥ 9:00) > workout (< 4:00) > long (≥ 70 min) > jog
+      let kind = "jog";
+      if (secPerKm != null && secPerKm >= WALK_PACE_SPK)       kind = "walk";
+      else if (secPerKm != null && secPerKm < WORKOUT_PACE_SPK) kind = "workout";
+      else if ((moving ?? 0) >= LONG_RUN_SECONDS)               kind = "long";
+
+      const cur = m.get(key) || { totalKm: 0, walk: 0, workout: 0, long: 0, jog: 0 };
+      cur.totalKm += km;
+      cur[kind]   += km;
+      m.set(key, cur);
+    }
+
+    return { byDay: m, latestDate: latest || new Date() };
+  }, [activities, timeZone]);
+
+  // Month model
   const initialAnchor = React.useMemo(() => {
     const base = startFromLatest ? latestDate : new Date();
     return new Date(base.getFullYear(), base.getMonth(), 1);
   }, [latestDate, startFromLatest]);
 
   const [monthAnchor, setMonthAnchor] = React.useState(initialAnchor);
-  const goPrev = () => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
-  const goNext = () => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+  const goPrev  = () => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  const goNext  = () => setMonthAnchor(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
   const goToday = () => setMonthAnchor(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
-  // ---- Build visible month cells (Mon–Sun) ----
-  const { cells, monthLabel, kmValues, weeks } = React.useMemo(() => {
+  // Build visible grid (Mon–Sun)
+  const { cells, monthLabel, kmTotalsForScale, weeks } = React.useMemo(() => {
     const y = monthAnchor.getFullYear();
     const m = monthAnchor.getMonth();
     const first = new Date(y, m, 1);
-    const last = new Date(y, m + 1, 0);
+    const last  = new Date(y, m + 1, 0);
     const monthName = first.toLocaleDateString(undefined, { year: "numeric", month: "long" });
 
-    const weekday = (day) => (day + 6) % 7; // Monday = 0
+    const weekday = (day) => (day + 6) % 7; // Monday=0
     const lead = weekday(first.getDay());
-    const totalDays = last.getDate();
+    const totalDays  = last.getDate();
     const totalCells = Math.ceil((lead + totalDays) / 7) * 7;
-    const weekCount = totalCells / 7;
+    const weekCount  = totalCells / 7;
 
     const arr = [];
-    const observed = [];
+    const totals = [];
+
     for (let i = 0; i < totalCells; i++) {
       const n = i - lead + 1;
       if (n < 1 || n > totalDays) {
@@ -81,38 +180,41 @@ export default function CalendarMileageFill({
       } else {
         const d = new Date(y, m, n);
         const key = dayKeyFromDate(d, timeZone);
-        const km = byDayKm.get(key) || 0;
-        if (km > 0) observed.push(km);
-        arr.push({ inMonth: true, key, km });
+        const rec = byDay.get(key) || { totalKm: 0, walk: 0, workout: 0, long: 0, jog: 0 };
+        if (rec.totalKm > 0) totals.push(rec.totalKm);
+
+        const slices = [];
+        KINDS.forEach((k) => {
+          if (rec[k] > 0) slices.push({ kind: k, km: rec[k] });
+        });
+
+        arr.push({ inMonth: true, key, totalKm: rec.totalKm, slices });
       }
     }
-    return { cells: arr, monthLabel: monthName, kmValues: observed, weeks: weekCount };
-  }, [monthAnchor, byDayKm, timeZone]);
+    return { cells: arr, monthLabel: monthName, kmTotalsForScale: totals, weeks: weekCount };
+  }, [monthAnchor, byDay, timeZone]);
 
-  // ---- Scale for dot size (km -> 0..1) ----
+  // Dot size scale by total km/day
   const scaleMaxKm = React.useMemo(() => {
     if (maxKmForScale != null) return Math.max(1, maxKmForScale);
-    if (!kmValues.length) return 1;
-    const sorted = [...kmValues].sort((a, b) => a - b);
-    const idx = Math.floor(0.95 * (sorted.length - 1)); // 95th percentile to tame outliers
+    if (!kmTotalsForScale.length) return 1;
+    const sorted = [...kmTotalsForScale].sort((a, b) => a - b);
+    const idx = Math.floor(0.95 * (sorted.length - 1)); // 95th percentile
     return Math.max(1, sorted[idx]);
-  }, [kmValues, maxKmForScale]);
+  }, [kmTotalsForScale, maxKmForScale]);
 
-  const tForKm = (km) => (!km || km <= 0) ? 0 : Math.min(1, km / scaleMaxKm);
+  const sizeFactor = (km) => (!km || km <= 0) ? 0 : Math.min(1, km / scaleMaxKm);
 
-  const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const todayKey = dayKeyFromDate(new Date(), timeZone);
-
-  // ---- Auto-fit sizing ----
+  // Auto-fit sizing (no scrolling)
   const containerRef = React.useRef(null);
-  const headerRef = React.useRef(null);   // title + nav
-  const monthRef  = React.useRef(null);   // month name
-  const daysHeadRef = React.useRef(null); // weekday labels
+  const headerRef = React.useRef(null);
+  const monthRef  = React.useRef(null);
+  const daysHeadRef = React.useRef(null);
   const legendRef = React.useRef(null);
 
-  const GAP = 10;               // grid gap (px)
-  const SIDE_PAD = 12 * 2;      // card horizontal padding
-  const [cellPx, setCellPx] = React.useState(44); // default guess
+  const GAP = 10;
+  const SIDE_PAD = 12 * 2;
+  const [cellPx, setCellPx] = React.useState(44);
 
   React.useLayoutEffect(() => {
     if (!fitToContainer) return;
@@ -127,10 +229,7 @@ export default function CalendarMileageFill({
       const legendH = legendRef.current?.offsetHeight ?? 0;
 
       const verticalGaps = GAP * (weeks - 1);
-      const availableH = Math.max(
-        0,
-        box.height - headerH - monthH - daysH - legendH - 8 /* small margins */
-      );
+      const availableH = Math.max(0, box.height - headerH - monthH - daysH - legendH - 8);
       const perRowH = (availableH - verticalGaps) / weeks;
 
       const availableW = Math.max(0, box.width - SIDE_PAD);
@@ -160,13 +259,16 @@ export default function CalendarMileageFill({
         gap: GAP,
       };
 
-  // ---- Render ----
+  const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const todayKey = dayKeyFromDate(new Date(), timeZone);
+
+  // ---- Render
   return (
     <div
       ref={containerRef}
       style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 12, height: "100%" }}
     >
-      {/* Header (title + nav) */}
+      {/* Header */}
       <div ref={headerRef} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>{title}</h3>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
@@ -177,10 +279,7 @@ export default function CalendarMileageFill({
       </div>
 
       {/* Month name */}
-      <div
-        ref={monthRef}
-        style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, textAlign: "center" }}
-      >
+      <div ref={monthRef} style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, textAlign: "center" }}>
         {monthLabel}
       </div>
 
@@ -201,35 +300,77 @@ export default function CalendarMileageFill({
         {weekdayLabels.map(w => <div key={w}>{w}</div>)}
       </div>
 
-      {/* Grid (transparent cells; only circles or "Rest") */}
+      {/* Grid */}
       <div style={gridStyle}>
         {cells.map((c, i) => {
           if (!c.inMonth) return <div key={`x-${i}`} style={{ width: cellPx, height: cellPx }} />;
 
-          const t = tForKm(c.km); // 0..1
-          const dotSize = Math.max(minDotPx, Math.round(t * cellPx)); // fills square at t=1
+          const t = sizeFactor(c.totalKm);
+          const dotSize = Math.max(minDotPx, Math.round(t * cellPx));
+          const r = dotSize / 2;
+          const cx = r, cy = r;
+
           const isToday = c.key === todayKey;
-          const showLabel = dotSize >= labelMinPx && c.km > 0;
+          const showLabel = dotSize >= labelMinPx && c.totalKm > 0;
+
+          const oneSlice = c.slices.length === 1 ? c.slices[0] : null;
+          const edgeCol = oneSlice ? COLORS[oneSlice.kind].edge : "#94a3b8";
 
           return (
             <button
               key={c.key}
-              onClick={onDayClick ? () => onDayClick(c.key, c.km) : undefined}
-              title={c.km > 0 ? `${c.key} · ${c.km.toFixed(1)} km` : `${c.key} · Rest`}
+              onClick={onDayClick ? () => onDayClick(c.key, c.totalKm, c.slices) : undefined}
+              title={c.totalKm > 0 ? `${c.key} · ${c.totalKm.toFixed(1)} km` : `${c.key} · Rest`}
               style={outerCell(isToday, !!onDayClick, cellPx)}
-              aria-label={c.km > 0 ? `${c.km.toFixed(1)} kilometres` : "Rest"}
+              aria-label={c.totalKm > 0 ? `${c.totalKm.toFixed(1)} kilometres` : "Rest"}
             >
-              {c.km > 0 ? (
-                <>
-                  <div
-                    style={{
-                      ...dotBase,
-                      width: dotSize,
-                      height: dotSize,
-                    }}
-                  />
-                  {showLabel && <div style={dotLabel}>{c.km.toFixed(1)}</div>}
-                </>
+              {c.totalKm > 0 ? (
+                <svg width={dotSize} height={dotSize} viewBox={`0 0 ${dotSize} ${dotSize}`} style={svgCentred}>
+                  {/* subtle background for contrast */}
+                  <circle cx={cx} cy={cy} r={r} fill="#ffffff" opacity="0.9" />
+
+                  {oneSlice ? (
+                    // FULL CIRCLE for single-activity days
+                    <circle cx={cx} cy={cy} r={r} fill={COLORS[oneSlice.kind].fill} />
+                  ) : (
+                    // PIE SLICES for multi-activity days
+                    (() => {
+                      let acc = 0;
+                      const total = c.slices.reduce((a, s) => a + s.km, 0) || 1;
+                      return c.slices.map((s, idx) => {
+                        const frac = s.km / total;
+                        if (frac <= 0) return null;
+                        const startDeg = acc * 360;
+                        const endDeg = (acc + frac) * 360;
+                        acc += frac;
+                        return (
+                          <path
+                            key={idx}
+                            d={arcPath(cx, cy, r, startDeg, endDeg)}
+                            fill={COLORS[s.kind].fill}
+                          />
+                        );
+                      });
+                    })()
+                  )}
+
+                  {/* edge ring */}
+                  <circle cx={cx} cy={cy} r={r - 0.5} fill="none" stroke={edgeCol} strokeWidth="1" />
+
+                  {showLabel && (
+                    <text
+                      x={cx}
+                      y={cy}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={Math.max(10, Math.round(dotSize * 0.32))}
+                      fontWeight="700"
+                      fill="#0f172a"
+                    >
+                      {c.totalKm.toFixed(1)}
+                    </text>
+                  )}
+                </svg>
               ) : (
                 <div style={restLabel}>Rest</div>
               )}
@@ -241,15 +382,34 @@ export default function CalendarMileageFill({
       {/* Legend */}
       <div
         ref={legendRef}
-        style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#64748b" }}
+        style={{
+          marginTop: 8,
+          display: "grid",
+          gridTemplateColumns: "repeat(4, auto) 1fr",
+          alignItems: "center",
+          gap: 10,
+          fontSize: 11,
+          color: "#475569"
+        }}
       >
-        <span>Less</span>
-        <div style={{ ...legendDot, width: 10, height: 10 }} />
-        <div style={{ ...legendDot, width: 16, height: 16 }} />
-        <div style={{ ...legendDot, width: 22, height: 22 }} />
-        <span>More</span>
-        <span style={{ marginLeft: "auto" }}>Scale max: {scaleMaxKm.toFixed(1)} km</span>
+        <LegendItem color={COLORS.walk.fill}    edge={COLORS.walk.edge} label={COLORS.walk.label} />
+        <LegendItem color={COLORS.workout.fill} edge={COLORS.workout.edge} label={COLORS.workout.label} />
+        <LegendItem color={COLORS.long.fill}    edge={COLORS.long.edge} label={COLORS.long.label} />
+        <LegendItem color={COLORS.jog.fill}     edge={COLORS.jog.edge} label={COLORS.jog.label} />
+        <div style={{ textAlign: "right", color: "#64748b" }}>Scale max: {scaleMaxKm.toFixed(1)} km</div>
       </div>
+    </div>
+  );
+}
+
+function LegendItem({ color, edge, label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{
+        width: 12, height: 12, borderRadius: "50%",
+        background: color, boxShadow: `inset 0 0 0 1px ${edge}`
+      }} />
+      <span>{label}</span>
     </div>
   );
 }
@@ -271,30 +431,16 @@ const outerCell = (isToday, clickable, cellPx) => ({
   border: "none",
   padding: 0,
   cursor: clickable ? "pointer" : "default",
-  outline: isToday ? "2px solid #a7f3d0" : "none", // subtle highlight for today
+  outline: isToday ? "2px solid #a7f3d0" : "none",
   borderRadius: 10,
 });
 
-const dotBase = {
+const svgCentred = {
   position: "absolute",
   left: "50%",
   top: "50%",
   transform: "translate(-50%, -50%)",
-  borderRadius: "50%",
-  background: "#34d399", // green
-  boxShadow: "inset 0 0 0 1px #059669",
-  transition: "width 120ms ease, height 120ms ease",
-};
-
-const dotLabel = {
-  position: "absolute",
-  left: "50%",
-  top: "50%",
-  transform: "translate(-50%, -50%)",
-  fontSize: 12,
-  fontWeight: 700,
-  color: "#0f172a",
-  pointerEvents: "none",
+  display: "block",
 };
 
 const restLabel = {
@@ -304,10 +450,4 @@ const restLabel = {
   transform: "translate(-50%, -50%)",
   fontSize: 12,
   color: "#94a3b8",
-};
-
-const legendDot = {
-  borderRadius: "50%",
-  background: "#34d399",
-  boxShadow: "inset 0 0 0 1px #059669",
 };

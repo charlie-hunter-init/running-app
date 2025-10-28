@@ -207,6 +207,7 @@ export default function StravaHeatmapApp() {
           <CalendarView
             features={features}
             filtered={filtered}
+            items={indexData?.items || []}
           />
         ) : (
           <PersonalBestView pb={pb} features={features} />
