@@ -5,12 +5,14 @@ import MapView from "./components/map/MapView";
 import InsightsView from "./components/insights/InsightsView";
 import PersonalBestView from "./components/personalBest/PersonalBestView";
 import RecentRunsList from "./components/runs/RecentRunsList";
-import CalendarView from "./components/calendar/CalendarView"; // NEW
+import CalendarView from "./components/calendar/CalendarView";
+import WrapView from "./components/wrapped/WrapView"; // NEW (you'll create this)
 
 const SIDEBAR_WIDTH = 340; // keep the map big
 
 export default function StravaHeatmapApp() {
-  const [tab, setTab] = useState("map"); // values: map | insights | calendar | pb
+  // values: map | insights | calendar | pb | wrapped
+  const [tab, setTab] = useState("map");
 
   const [geojson, setGeojson] = useState(null);
   const [stats, setStats] = useState(null);
@@ -143,6 +145,10 @@ export default function StravaHeatmapApp() {
 
   const last1000 = useMemo(() => (indexData?.items || []).slice(0, 1000), [indexData]);
 
+  // NOTE: Wrapped should ignore UI filters and use calendar years only.
+  // So give it the raw items/features and let WrapView pick current vs previous year.
+  const allIndexItems = indexData?.items || [];
+
   return (
     <div
       style={{
@@ -164,6 +170,15 @@ export default function StravaHeatmapApp() {
         lineColorName={lineColorName} setLineColorName={setLineColorName}
         lineColors={lineColors}
         onFile={handleFile}
+        // NEW: if your Header supports a tabs prop, add Wrapped here.
+        // If it doesn't, just add a Wrapped button in Header manually.
+        tabs={[
+          { id: "map", label: "Map" },
+          { id: "insights", label: "Insights" },
+          { id: "calendar", label: "Calendar" },
+          { id: "wrapped", label: "Wrapped" }, // NEW
+          { id: "pb", label: "PBs" },
+        ]}
       />
 
       <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
@@ -207,7 +222,14 @@ export default function StravaHeatmapApp() {
           <CalendarView
             features={features}
             filtered={filtered}
-            items={indexData?.items || []}
+            items={allIndexItems}
+          />
+        ) : tab === "wrapped" ? (
+          <WrapView
+            // WrapView should do: current calendar year (NZ time) vs previous calendar year.
+            // It should NOT use the UI filters.
+            items={allIndexItems}
+            features={features} // optional if you want geometry-linked stats later
           />
         ) : (
           <PersonalBestView pb={pb} features={features} />
