@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useEffect } from "react";
-import { MapContainer, TileLayer, GeoJSON, LayersControl, Pane } from "react-leaflet";
+import { MapContainer, TileLayer, GeoJSON, LayersControl, Pane, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat"; // plugin
@@ -40,9 +40,8 @@ function sliceLineByDistance(coords, fromM, toM) {
     if (nextAcc > fromM && acc < toM) {
       let startPt;
       if (!started) {
-        if (fromM <= acc) {
-          startPt = a;
-        } else {
+        if (fromM <= acc) startPt = a;
+        else {
           const t = (fromM - acc) / segLen;
           startPt = interpolate(a, b, t);
         }
@@ -62,6 +61,88 @@ function sliceLineByDistance(coords, fromM, toM) {
   return out.length >= 2 ? out : null;
 }
 
+/**
+ * Base runs layer implemented as an imperative Leaflet layer.
+ * This avoids react-leaflet <GeoJSON> reconciliation issues during high-frequency updates.
+ */
+function BaseRunsLayer({ features, style, renderer, pane }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const prevLenRef = useRef(0);
+
+  // Create layer once
+  useEffect(() => {
+    const layer = L.geoJSON(
+      { type: "FeatureCollection", features: [] },
+      {
+        pane,
+        style,
+        interactive: false,
+        smoothFactor: 1.0,
+        renderer,
+      }
+    );
+
+    layer.addTo(map);
+    try {
+      layer.bringToFront();
+    } catch {}
+
+    layerRef.current = layer;
+    prevLenRef.current = 0;
+
+    return () => {
+      try {
+        layer.remove();
+      } catch {}
+      layerRef.current = null;
+    };
+  }, [map, pane, renderer, style]);
+
+  // Update style when it changes (eg line colour picker)
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    try {
+      layer.setStyle(style);
+    } catch {}
+  }, [style]);
+
+  // Incremental update of data
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+
+    const newLen = features.length;
+    const prevLen = prevLenRef.current;
+
+    try {
+      if (newLen > prevLen) {
+        // append-only delta
+        const delta = features.slice(prevLen);
+        if (delta.length) {
+          layer.addData({ type: "FeatureCollection", features: delta });
+        }
+      } else {
+        // scrub backwards / filter changes: rebuild once
+        layer.clearLayers();
+        if (newLen) {
+          layer.addData({ type: "FeatureCollection", features });
+        }
+      }
+
+      prevLenRef.current = newLen;
+      try {
+        layer.bringToFront();
+      } catch {}
+    } catch {
+      // swallow Leaflet errors so the map doesn't blank
+    }
+  }, [features]);
+
+  return null;
+}
+
 export default function MapView({
   filtered,
   heatPoints,
@@ -73,31 +154,43 @@ export default function MapView({
   highlightColor = "#ff6a00",
   selectedKm = null,
   selectedKmColor = "#60a5fa",
+  suppressFit = false,
 }) {
-  // Base data = all filtered runs
-  const baseGeojsonData = useMemo(
-    () => ({ type: "FeatureCollection", features: filtered }),
-    [filtered]
+  // One stable renderer instance
+  const canvasRenderer = useMemo(() => L.canvas(), []);
+
+  // Styles
+  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.5 }), [lineColor]);
+  const hiStyle = useMemo(() => ({ color: highlightColor, weight: 4, opacity: 0.98 }), [highlightColor]);
+  const kmStyle = useMemo(
+    () => ({ color: selectedKmColor, weight: 7, opacity: 1, lineJoin: "round", lineCap: "round" }),
+    [selectedKmColor]
   );
 
-  // Selected overlay = only the chosen run
+  // Selected overlay data
   const selectedGeojsonData = useMemo(
     () => (selectedFeature ? { type: "FeatureCollection", features: [selectedFeature] } : null),
     [selectedFeature]
   );
 
-  // Derived: selected km segment as its own LineString
+  // Derived: selected km segment
   const selectedKmFeature = useMemo(() => {
     if (!selectedFeature || !selectedKm) return null;
     const g = selectedFeature.geometry || {};
     const type = g.type;
-    const coords = type === "LineString" ? g.coordinates
-      : (type === "MultiLineString" ? g.coordinates.flat() : null);
+    const coords =
+      type === "LineString"
+        ? g.coordinates
+        : type === "MultiLineString"
+          ? g.coordinates.flat()
+          : null;
     if (!coords) return null;
+
     const fromM = (selectedKm - 1) * 1000;
     const toM = selectedKm * 1000;
     const sub = sliceLineByDistance(coords, fromM, toM);
     if (!sub) return null;
+
     return {
       type: "Feature",
       properties: { id: selectedFeature?.properties?.id, km: selectedKm },
@@ -105,15 +198,7 @@ export default function MapView({
     };
   }, [selectedFeature, selectedKm]);
 
-  // Force base layer to remount whenever 'filtered' changes (e.g., after fetch)
-  const baseKey = useMemo(() => {
-    const len = filtered.length;
-    const firstId = len ? (filtered[0]?.properties?.id ?? "a") : "x";
-    const lastId  = len ? (filtered[len - 1]?.properties?.id ?? "b") : "y";
-    return `base-${len}-${firstId}-${lastId}`;
-  }, [filtered]);
-
-  // Track selected ID and remember the previous one
+  // Selection clear behaviour
   const selectedId = selectedFeature?.properties?.id ?? null;
   const prevSelectedIdRef = useRef(null);
   const clearedSelection = prevSelectedIdRef.current != null && selectedId == null;
@@ -121,21 +206,12 @@ export default function MapView({
     prevSelectedIdRef.current = selectedId;
   }, [selectedId]);
 
-  // Line styles
-  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.5 }), [lineColor]);
-  const hiStyle   = useMemo(() => ({ color: highlightColor, weight: 4, opacity: 0.98 }), [highlightColor]);
-  const kmStyle   = useMemo(
-    () => ({ color: selectedKmColor, weight: 7, opacity: 1, lineJoin: "round", lineCap: "round" }),
-    [selectedKmColor]
-  );
-
-  // Which geometry to fit to
   const fitFeatures = useMemo(() => {
-    // If the user has just clicked "Clear", do not refit (prevents zooming out).
+    if (suppressFit) return [];
     if (clearedSelection) return [];
     if (selectedKmFeature) return [selectedKmFeature];
     return selectedFeature ? [selectedFeature] : filtered;
-  }, [clearedSelection, selectedKmFeature, selectedFeature, filtered]);
+  }, [suppressFit, clearedSelection, selectedKmFeature, selectedFeature, filtered]);
 
   const selectedKeyId = selectedId ?? "none";
 
@@ -190,28 +266,20 @@ export default function MapView({
         </LayersControl.BaseLayer>
       </LayersControl>
 
-      {/* Heatmap: dedicated low-z pane */}
+      {/* Heatmap */}
       <Pane name="heat" style={{ zIndex: 300 }} />
       <HeatmapLayer pane="heat" points={heatPoints} radius={radius} blur={blur} gradient={gradient} />
 
-      {/* Base lines: very high z, always on top of heat */}
+      {/* Base lines */}
       <Pane name="base-lines" style={{ zIndex: 1000 }} />
-      {filtered.length > 0 && (
-        <GeoJSON
-          key={baseKey}
-          pane="base-lines"
-          data={baseGeojsonData}
-          style={baseStyle}
-          renderer={L.canvas()}
-          interactive={false}
-          smoothFactor={1.0}
-          whenCreated={(layer) => {
-            try { layer.bringToFront(); } catch {}
-          }}
-        />
-      )}
+      <BaseRunsLayer
+        features={filtered}
+        style={baseStyle}
+        renderer={canvasRenderer}
+        pane="base-lines"
+      />
 
-      {/* Selected overlay: higher */}
+      {/* Selected overlay */}
       <Pane name="selected-line" style={{ zIndex: 1100 }} />
       {selectedGeojsonData && (
         <GeoJSON
@@ -219,7 +287,7 @@ export default function MapView({
           pane="selected-line"
           data={selectedGeojsonData}
           style={hiStyle}
-          renderer={L.canvas()}
+          renderer={canvasRenderer}
           interactive={false}
           smoothFactor={0}
           whenCreated={(layer) => {
@@ -228,7 +296,7 @@ export default function MapView({
         />
       )}
 
-      {/* Selected KM overlay: highest */}
+      {/* Selected KM overlay */}
       <Pane name="selected-km" style={{ zIndex: 1150 }} />
       {selectedKmFeature && (
         <GeoJSON
@@ -236,7 +304,7 @@ export default function MapView({
           pane="selected-km"
           data={{ type: "FeatureCollection", features: [selectedKmFeature] }}
           style={kmStyle}
-          renderer={L.canvas()}
+          renderer={canvasRenderer}
           interactive={false}
           smoothFactor={0}
           whenCreated={(layer) => {
@@ -245,7 +313,6 @@ export default function MapView({
         />
       )}
 
-      {/* Fit to selected km if present; else selected; else all (but skip once after Clear) */}
       <FitToBounds features={fitFeatures} maxZoom={14} />
     </MapContainer>
   );
