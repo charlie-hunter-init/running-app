@@ -2,7 +2,6 @@ import React from "react";
 import { dayKeyFromDate, addDays, dateFromKey, TZ } from "../../lib/streak";
 
 export default function StreakTracker({ features, timeZone = TZ, type = "Run" }) {
-  // Build a set of day keys that have at least one activity of the given type
   const daySet = React.useMemo(() => {
     const s = new Set();
     for (const f of features || []) {
@@ -15,7 +14,6 @@ export default function StreakTracker({ features, timeZone = TZ, type = "Run" })
     return s;
   }, [features, timeZone, type]);
 
-  // Compute current streak (ending today if active)
   const { current, currentStart, currentEnd } = React.useMemo(() => {
     const todayKey = dayKeyFromDate(new Date(), timeZone);
     let streak = 0;
@@ -34,16 +32,15 @@ export default function StreakTracker({ features, timeZone = TZ, type = "Run" })
     return { current: streak, currentStart: startKey, currentEnd: todayKey };
   }, [daySet, timeZone]);
 
-  // Compute all historical streaks (start, end, length)
   const allStreaks = React.useMemo(() => {
     if (daySet.size === 0) return [];
-    const keys = Array.from(daySet).sort(); // ascending YYYY-MM-DD
+    const keys = Array.from(daySet).sort();
     const have = new Set(keys);
     const streaks = [];
 
     for (const key of keys) {
       const prevKey = dayKeyFromDate(addDays(dateFromKey(key), -1), timeZone);
-      if (have.has(prevKey)) continue; // not a start
+      if (have.has(prevKey)) continue;
 
       let len = 1;
       let start = key;
@@ -62,16 +59,16 @@ export default function StreakTracker({ features, timeZone = TZ, type = "Run" })
       streaks.push({ len, start, end });
     }
 
-    // Sort by length desc; tie-break by more recent end date first
     streaks.sort((a, b) => (b.len - a.len) || (a.end < b.end ? 1 : -1));
     return streaks;
   }, [daySet, timeZone]);
 
-  // Exclude the active current streak from the "other" list (if there is one)
   const topOther = React.useMemo(() => {
-    const filtered = current > 0
-      ? allStreaks.filter(s => !(s.start === currentStart && s.end === currentEnd))
-      : allStreaks.slice();
+    const filtered =
+      current > 0
+        ? allStreaks.filter((s) => !(s.start === currentStart && s.end === currentEnd))
+        : allStreaks.slice();
+
     return {
       first: filtered[0] || null,
       second: filtered[1] || null,
@@ -80,42 +77,37 @@ export default function StreakTracker({ features, timeZone = TZ, type = "Run" })
   }, [allStreaks, current, currentStart, currentEnd]);
 
   return (
-    <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 12 }}>
-      <h3 style={{ margin: "0 0 8px 0", fontSize: 16 }}>
-        Streaks ({type} days)
-      </h3>
+    <div style={styles.panel}>
+      <div style={styles.headerRow}>
+        <div>
+          <div style={styles.kicker}>Streaks</div>
+          <div style={styles.title}>{type} days</div>
+        </div>
+        <div style={styles.miniNote}>
+          Current counts only if you’ve done a {type.toLowerCase()} today (NZ time)
+        </div>
+      </div>
 
-      {/* 2×2 grid: Current | Longest(other) ; 2nd(other) | 3rd(other) */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(2, minmax(200px, 1fr))",
-        gap: 12
-      }}>
-        {/* Current */}
+      <div style={styles.grid}>
         <StreakCard
-          title="Current streak"
+          title="Current"
           value={`${current} day${current === 1 ? "" : "s"}`}
-          subtitle={current > 0 ? `${currentStart} → ${currentEnd}` : "No run today"}
+          subtitle={current > 0 ? `${currentStart} → ${currentEnd}` : "No streak active"}
+          tone="current"
         />
-
-        {/* Longest (other) */}
         <StreakCard
           title="Longest (other)"
-          value={topOther.first ? `${topOther.first.len} day${topOther.first.len === 1 ? "" : "s"}` : "0 days"}
+          value={topOther.first ? `${topOther.first.len} days` : "0 days"}
           subtitle={topOther.first ? `${topOther.first.start} → ${topOther.first.end}` : "—"}
         />
-
-        {/* 2nd longest (other) */}
         <StreakCard
-          title="2nd longest (other)"
-          value={topOther.second ? `${topOther.second.len} day${topOther.second.len === 1 ? "" : "s"}` : "0 days"}
+          title="2nd (other)"
+          value={topOther.second ? `${topOther.second.len} days` : "0 days"}
           subtitle={topOther.second ? `${topOther.second.start} → ${topOther.second.end}` : "—"}
         />
-
-        {/* 3rd longest (other) */}
         <StreakCard
-          title="3rd longest (other)"
-          value={topOther.third ? `${topOther.third.len} day${topOther.third.len === 1 ? "" : "s"}` : "0 days"}
+          title="3rd (other)"
+          value={topOther.third ? `${topOther.third.len} days` : "0 days"}
           subtitle={topOther.third ? `${topOther.third.start} → ${topOther.third.end}` : "—"}
         />
       </div>
@@ -123,12 +115,84 @@ export default function StreakTracker({ features, timeZone = TZ, type = "Run" })
   );
 }
 
-function StreakCard({ title, value, subtitle }) {
+function StreakCard({ title, value, subtitle, tone }) {
+  const isCurrent = tone === "current";
   return (
-    <div style={{ padding: 12, border: "1px solid #f1f5f9", borderRadius: 8 }}>
-      <div style={{ fontSize: 12, color: "#6b7280" }}>{title}</div>
-      <div style={{ fontSize: 24, fontWeight: 700 }}>{value}</div>
-      <div style={{ fontSize: 12, color: "#6b7280" }}>{subtitle}</div>
+    <div
+      style={{
+        ...styles.card,
+        borderColor: isCurrent ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.08)",
+        background: isCurrent ? "rgba(99,102,241,0.10)" : "rgba(255,255,255,0.03)",
+      }}
+    >
+      <div style={styles.cardTitle}>{title}</div>
+      <div style={styles.cardValue}>{value}</div>
+      <div style={styles.cardSub}>{subtitle}</div>
     </div>
   );
 }
+
+const styles = {
+  panel: {
+    width: "100%",
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    padding: 14,
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-end",
+    marginBottom: 12,
+  },
+  kicker: {
+    fontSize: 12,
+    letterSpacing: "0.10em",
+    textTransform: "uppercase",
+    color: "rgba(229,231,235,0.70)",
+    fontWeight: 900,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: 950,
+    color: "rgba(255,255,255,0.92)",
+  },
+  miniNote: {
+    fontSize: 12,
+    color: "rgba(229,231,235,0.65)",
+    textAlign: "right",
+    maxWidth: 360,
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(220px, 1fr))",
+    gap: 12,
+  },
+  card: {
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.08)",
+    padding: 12,
+  },
+  cardTitle: {
+    fontSize: 12,
+    color: "rgba(229,231,235,0.75)",
+    fontWeight: 900,
+    marginBottom: 6,
+  },
+  cardValue: {
+    fontSize: 22,
+    fontWeight: 950,
+    color: "rgba(255,255,255,0.92)",
+    lineHeight: 1.1,
+    marginBottom: 4,
+  },
+  cardSub: {
+    fontSize: 12,
+    color: "rgba(229,231,235,0.70)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+};

@@ -40,3 +40,307 @@
 .read-the-docs {
   color: #888;
 }
+
+
+
+:root {
+  --header-h: auto;
+  --sidebar-w: 340px;
+}
+
+/* Make the root fill the viewport */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Default desktop layout (your current intent) */
+.app-shell {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+  background: #f8fafc;
+}
+
+.app-content {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Map tab desktop split */
+.map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-w);
+  height: 100%;
+  min-height: 0;
+}
+
+/* Ensure leaflet always fills its container */
+.map-pane {
+  min-height: 0;
+}
+.map-pane .leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* Sidebar desktop */
+.sidebar-pane {
+  min-height: 0;
+  border-left: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+/* --- Mobile breakpoint --- */
+@media (max-width: 900px) {
+  /* Let the page scroll naturally on iOS */
+  .app-shell {
+    position: relative;
+    height: 100dvh; /* dynamic viewport */
+  }
+
+  .app-content {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Stack map + sidebar vertically */
+  .map-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 52vh auto; /* map top, list bottom */
+  }
+
+  .map-pane .leaflet-container {
+    height: 52vh;
+  }
+
+  /* Sidebar becomes bottom sheet-ish */
+  .sidebar-pane {
+    border-left: none;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    background: transparent; /* let RecentRunsList own its background */
+  }
+}
+
+/* --- Small phones --- */
+@media (max-width: 520px) {
+  .map-layout {
+    grid-template-rows: 45vh auto;
+  }
+
+  .map-pane .leaflet-container {
+    height: 45vh;
+  }
+}
+
+/* Header should wrap and scroll tabs horizontally on small screens */
+@media (max-width: 900px) {
+  .header-wrap {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .tabs-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs-row::-webkit-scrollbar { display: none; }
+
+  .filters-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+}
+@media (max-width: 520px) {
+  .filters-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #05060a;
+  overscroll-behaviour: none;
+}
+
+.app-root {
+  width: 100vw;
+  height: 100dvh; /* mobile safe viewport */
+}
+
+
+
+.insights-page{
+  height:100%;
+  overflow:auto;
+  background:
+    radial-gradient(1200px 600px at 20% 0%, rgba(99,102,241,0.22), transparent 55%),
+    radial-gradient(900px 500px at 85% 15%, rgba(14,165,233,0.18), transparent 55%),
+    #05060a;
+  color: rgba(255,255,255,0.92);
+}
+
+.insights-container{
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px 16px 28px;
+}
+
+.insights-hero{
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(10px);
+}
+
+.insights-hero-top{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.insights-title{
+  margin:0;
+  font-size: 24px;
+  font-weight: 950;
+  letter-spacing: -0.3px;
+}
+
+.insights-subtitle{
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(229,231,235,0.75);
+}
+
+.insights-control{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+}
+
+.insights-control-label{
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(229,231,235,0.75);
+}
+
+.insights-select{
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.92);
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.insights-stats-row{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.insights-stat{
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  padding: 12px;
+}
+
+.insights-stat-k{
+  font-size: 12px;
+  color: rgba(229,231,235,0.72);
+  font-weight: 900;
+}
+
+.insights-stat-v{
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: -0.2px;
+}
+
+.insights-stat-v-small{
+  font-size: 15px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.86);
+}
+
+.insights-grid{
+  display:grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.insights-col{
+  display:grid;
+  gap: 14px;
+  min-width: 0;
+  align-content:start;
+}
+
+.insights-card{
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(10px);
+  overflow:hidden;
+}
+
+.insights-card-pad{
+  padding: 14px;
+}
+
+.insights-card-title-row{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.insights-card-title{
+  margin: 0;
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: -0.2px;
+  color: rgba(255,255,255,0.92);
+}
+
+.insights-card-meta{
+  font-size: 12px;
+  color: rgba(229,231,235,0.70);
+  white-space: nowrap;
+}
+
+.insights-muted{
+  font-size: 13px;
+  color: rgba(229,231,235,0.70);
+}
+
+@media (max-width: 900px){
+  .insights-container{ padding: 12px 12px 20px; }
+  .insights-title{ font-size: 20px; }
+  .insights-grid{ grid-template-columns: 1fr; }
+  .insights-stats-row{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

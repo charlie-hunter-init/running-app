@@ -3,94 +3,153 @@ import { fmtDate } from "../../lib/geo";
 import WeeklyMileageChart from "./WeeklyMileageChart";
 import ActivitiesTable from "./ActivitiesTable";
 import ShoeTable from "./ShoeTable";
-import StreakTracker from "./StreakTracker";
 import MonthlyDistanceBars from "./MonthlyDistanceBars";
 import WeeklyDayOfWeekLines from "./WeeklyDayOfWeekLines";
-import StreakTimelinePanel from "./StreakTimelinePanel"; 
-//import CalendarMileageFill from "../calendar/CalendarMileageDots"; 
+import StreakTimelinePanel from "./StreakTimelinePanel";
+
+// If you put the CSS below into a dedicated file, import it here:
+// import "./insights.css";
 
 export default function InsightsView({ stats, features, filtered, weeklyRange, setWeeklyRange }) {
-  const cardStyle = { background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 12 };
+  const generated = stats?.generated_at ? fmtDate(stats.generated_at) : "—";
+  const tz = stats?.timezone || "Pacific/Auckland";
+  const ytdKm = stats?.ytd?.distance_m != null ? (stats.ytd.distance_m / 1000).toFixed(0) : "—";
+  const ytdRuns = stats?.ytd?.count != null ? stats.ytd.count : "—";
 
   return (
-    <div style={{ height: "100%", overflow: "auto", padding: 16 }}>
-      {/* Controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <label style={{ fontSize: 14 }}>Weekly range</label>
-        <select
-          value={weeklyRange}
-          onChange={(e) => setWeeklyRange(e.target.value)}
-          style={{ border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 8px", fontSize: 14 }}
-        >
-          <option value="all">All time</option>
-          <option value="12m">Last 12 months</option>
-          <option value="6m">Last 6 months</option>
-          <option value="3m">Last 3 months</option>
-          <option value="1m">Last month</option>
-        </select>
-      </div>
+    <div className="insights-page">
+      <div className="insights-container">
+        {/* Hero */}
+        <div className="insights-hero">
+          <div className="insights-hero-top">
+            <div>
+              <h2 className="insights-title">Insights</h2>
+              <div className="insights-subtitle">
+                Timezone: {tz} • Generated: {generated}
+              </div>
+            </div>
 
-      {/* Summary tiles */}
-      {stats && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 12,
-            marginBottom: 12,
-          }}
-        >
-          <div style={cardStyle}>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>YTD Distance</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{(stats.ytd.distance_m / 1000).toFixed(0)} km</div>
+            {/* Weekly range control */}
+            <div className="insights-control">
+              <label className="insights-control-label">Weekly range</label>
+              <select
+                value={weeklyRange}
+                onChange={(e) => setWeeklyRange(e.target.value)}
+                className="insights-select"
+              >
+                <option value="all">All time</option>
+                <option value="12m">Last 12 months</option>
+                <option value="6m">Last 6 months</option>
+                <option value="3m">Last 3 months</option>
+                <option value="1m">Last month</option>
+              </select>
+            </div>
           </div>
-          <div style={cardStyle}>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>YTD Runs</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{stats.ytd.count}</div>
-          </div>
-          <div style={cardStyle}>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>Timezone</div>
-            <div style={{ fontSize: 16 }}>{stats.timezone}</div>
-          </div>
-          <div style={cardStyle}>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>Generated</div>
-            <div style={{ fontSize: 16 }}>{fmtDate(stats.generated_at)}</div>
-          </div>
-        </div>
-      )}
 
-      {/* Charts & tables layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 }}>
-        {/* Left column: Weekly → DOW → Monthly → Streak timeline (NEW) → Extra */}
-        <div style={{ display: "grid", gap: 16, alignContent: "start", minWidth: 0 }}>
-
-          <WeeklyMileageChart weekly={stats?.weekly || {}} range={weeklyRange} />
-          <WeeklyDayOfWeekLines features={filtered} range={weeklyRange} />
-          <StreakTimelinePanel features={filtered} type="Run" maxStreaks={8}/>
-          <MonthlyDistanceBars features={filtered} range={weeklyRange} />
-          
-          
-          {/* <CalendarMileageFill features={filtered} maxKmForScale={30} onDayClick={(key, km) => console.log("Clicked", key, km)}/> */}
-
-
-
-          {/* Extra chart placeholder (kept) */}
-          <div style={{ ...cardStyle, height: 260 }}>
-            <h3 style={{ margin: "0 0 8px 0", fontSize: 16 }}>Add another chart</h3>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>
-              Drop your next component here (e.g., pace distribution, elevation by month, HR zones).
+          {/* Summary tiles */}
+          <div className="insights-stats-row">
+            <div className="insights-stat">
+              <div className="insights-stat-k">YTD Distance</div>
+              <div className="insights-stat-v">{ytdKm} km</div>
+            </div>
+            <div className="insights-stat">
+              <div className="insights-stat-k">YTD Runs</div>
+              <div className="insights-stat-v">{ytdRuns}</div>
+            </div>
+            <div className="insights-stat">
+              <div className="insights-stat-k">Timezone</div>
+              <div className="insights-stat-v insights-stat-v-small">{tz}</div>
+            </div>
+            <div className="insights-stat">
+              <div className="insights-stat-k">Generated</div>
+              <div className="insights-stat-v insights-stat-v-small">{generated}</div>
             </div>
           </div>
         </div>
 
-        {/* Right column: Streak summary cards → Shoes */}
-        <div style={{ display: "grid", gap: 16, alignContent: "start", minWidth: 0 }}>
-          <ShoeTable byShoe={stats?.byShoe || {}} />
-        </div>
-      </div>
+        {/* Main grid */}
+        <div className="insights-grid">
+          {/* Left column */}
+          <div className="insights-col">
+            <section className="insights-card">
+              <div className="insights-card-pad">
+                <div className="insights-card-title-row">
+                  <h3 className="insights-card-title">Weekly mileage</h3>
+                  <div className="insights-card-meta">NZ time</div>
+                </div>
+                <WeeklyMileageChart weekly={stats?.weekly || {}} range={weeklyRange} />
+              </div>
+            </section>
 
-      {/* Activities table (respects current filters) */}
-      <ActivitiesTable features={filtered} />
+            <section className="insights-card">
+              <div className="insights-card-pad">
+                <div className="insights-card-title-row">
+                  <h3 className="insights-card-title">Weekly day-of-week</h3>
+                  <div className="insights-card-meta">{weeklyRange === "all" ? "All time" : "Filtered"}</div>
+                </div>
+                <WeeklyDayOfWeekLines features={filtered} range={weeklyRange} />
+              </div>
+            </section>
+
+            <section className="insights-card">
+              <div className="insights-card-pad">
+                <div className="insights-card-title-row">
+                  <h3 className="insights-card-title">Streak timeline</h3>
+                  <div className="insights-card-meta">Top streaks</div>
+                </div>
+                <StreakTimelinePanel features={filtered} type="Run" maxStreaks={8} />
+              </div>
+            </section>
+
+            <section className="insights-card">
+              <div className="insights-card-pad">
+                <div className="insights-card-title-row">
+                  <h3 className="insights-card-title">Monthly distance</h3>
+                  <div className="insights-card-meta">{weeklyRange}</div>
+                </div>
+                <MonthlyDistanceBars features={filtered} range={weeklyRange} />
+              </div>
+            </section>
+
+            <section className="insights-card">
+              <div className="insights-card-pad">
+                <div className="insights-card-title-row">
+                  <h3 className="insights-card-title">Next chart</h3>
+                  <div className="insights-card-meta">Placeholder</div>
+                </div>
+                <div className="insights-muted">
+                  Drop your next component here (pace distribution, elevation by month, HR zones, etc).
+                </div>
+                <div style={{ height: 200 }} />
+              </div>
+            </section>
+          </div>
+
+          {/* Right column */}
+          <div className="insights-col">
+            <section className="insights-card">
+              <div className="insights-card-pad">
+                <div className="insights-card-title-row">
+                  <h3 className="insights-card-title">Shoe totals</h3>
+                  <div className="insights-card-meta">Last used</div>
+                </div>
+                <ShoeTable byShoe={stats?.byShoe || {}} />
+              </div>
+            </section>
+          </div>
+        </div>
+
+        {/* Activities table */}
+        <section className="insights-card" style={{ marginTop: 14 }}>
+          <div className="insights-card-pad">
+            <div className="insights-card-title-row">
+              <h3 className="insights-card-title">Activities</h3>
+              <div className="insights-card-meta">Respects filters</div>
+            </div>
+            <ActivitiesTable features={filtered} />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

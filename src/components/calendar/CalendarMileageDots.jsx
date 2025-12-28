@@ -42,7 +42,7 @@ function normaliseActivities(items, features) {
       distance_m: it.distance ?? it.distance_m ?? null,   // metres
       moving_time: it.moving_time ?? null,                 // seconds
       elapsed_time: it.elapsed_time ?? null,               // seconds
-      average_speed: it.average_speed ?? null,             // m/s (already m/s in index)
+      average_speed: it.average_speed ?? null,             // m/s
       type: it.type ?? it.sport_type ?? null,
     }));
   }
@@ -90,7 +90,7 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
 
 /**
  * CalendarMileageFill
- * Uses indexData.items (preferred) to ensure consistent classification with Activities/RecentRuns.
+ * Uses indexData.items (preferred) to ensure consistent classification with RecentRuns.
  */
 export default function CalendarMileageFill({
   items = [],            // <-- pass indexData?.items here
@@ -100,8 +100,8 @@ export default function CalendarMileageFill({
   maxKmForScale,
   onDayClick,
   title = "Mileage calendar",
-  minDotPx = 10,
-  labelMinPx = 18,
+  minDotPx = 12,
+  labelMinPx = 20,
   fitToContainer = true,
 }) {
   // Build unified activity list
@@ -132,7 +132,7 @@ export default function CalendarMileageFill({
 
       // Classify: walk (pace ≥ 9:00) > workout (< 4:00) > long (≥ 70 min) > jog
       let kind = "jog";
-      if (secPerKm != null && secPerKm >= WALK_PACE_SPK)       kind = "walk";
+      if (secPerKm != null && secPerKm >= WALK_PACE_SPK)        kind = "walk";
       else if (secPerKm != null && secPerKm < WORKOUT_PACE_SPK) kind = "workout";
       else if ((moving ?? 0) >= LONG_RUN_SECONDS)               kind = "long";
 
@@ -266,20 +266,29 @@ export default function CalendarMileageFill({
   return (
     <div
       ref={containerRef}
-      style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 12, height: "100%" }}
+      style={styles.panel}
     >
+      <style>{`
+        .cal-cell { transition: transform .12s ease, box-shadow .12s ease, background .12s ease; }
+        .cal-cell:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+      `}</style>
+
       {/* Header */}
-      <div ref={headerRef} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>{title}</h3>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <button onClick={goPrev} title="Previous month" style={btnStyle}>◀</button>
-          <button onClick={goToday} title="Current month" style={btnStyle}>Today</button>
-          <button onClick={goNext} title="Next month" style={btnStyle}>▶</button>
+      <div ref={headerRef} style={styles.headerRow}>
+        <div style={styles.titleBlock}>
+          <div style={styles.titlePill}>Calendar</div>
+          <h3 style={styles.title}>{title}</h3>
+        </div>
+
+        <div style={styles.nav}>
+          <button onClick={goPrev} title="Previous month" style={styles.navBtn}>◀</button>
+          <button onClick={goToday} title="Current month" style={styles.todayBtn}>Today</button>
+          <button onClick={goNext} title="Next month" style={styles.navBtn}>▶</button>
         </div>
       </div>
 
       {/* Month name */}
-      <div ref={monthRef} style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, textAlign: "center" }}>
+      <div ref={monthRef} style={styles.monthLabel}>
         {monthLabel}
       </div>
 
@@ -287,14 +296,8 @@ export default function CalendarMileageFill({
       <div
         ref={daysHeadRef}
         style={{
-          display: "grid",
+          ...styles.weekHeader,
           gridTemplateColumns: fitToContainer ? `repeat(7, ${cellPx}px)` : "repeat(7, 1fr)",
-          gap: GAP,
-          marginBottom: 6,
-          fontSize: 11,
-          color: "#64748b",
-          textAlign: "center",
-          justifyContent: "center",
         }}
       >
         {weekdayLabels.map(w => <div key={w}>{w}</div>)}
@@ -314,7 +317,7 @@ export default function CalendarMileageFill({
           const showLabel = dotSize >= labelMinPx && c.totalKm > 0;
 
           const oneSlice = c.slices.length === 1 ? c.slices[0] : null;
-          const edgeCol = oneSlice ? COLORS[oneSlice.kind].edge : "#94a3b8";
+          const edgeCol = oneSlice ? COLORS[oneSlice.kind].edge : "rgba(148,163,184,0.9)";
 
           return (
             <button
@@ -322,12 +325,33 @@ export default function CalendarMileageFill({
               onClick={onDayClick ? () => onDayClick(c.key, c.totalKm, c.slices) : undefined}
               title={c.totalKm > 0 ? `${c.key} · ${c.totalKm.toFixed(1)} km` : `${c.key} · Rest`}
               style={outerCell(isToday, !!onDayClick, cellPx)}
+              className="cal-cell"
               aria-label={c.totalKm > 0 ? `${c.totalKm.toFixed(1)} kilometres` : "Rest"}
             >
               {c.totalKm > 0 ? (
                 <svg width={dotSize} height={dotSize} viewBox={`0 0 ${dotSize} ${dotSize}`} style={svgCentred}>
-                  {/* subtle background for contrast */}
-                  <circle cx={cx} cy={cy} r={r} fill="#ffffff" opacity="0.9" />
+                  <defs>
+                    {/* soft drop shadow */}
+                    <filter id="dotShadow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="rgba(0,0,0,0.5)" />
+                    </filter>
+
+                    {/* subtle inner highlight */}
+                    <radialGradient id="dotHighlight" cx="30%" cy="25%" r="70%">
+                      <stop offset="0%" stopColor="rgba(255,255,255,0.55)" />
+                      <stop offset="60%" stopColor="rgba(255,255,255,0.10)" />
+                      <stop offset="100%" stopColor="rgba(255,255,255,0.0)" />
+                    </radialGradient>
+                  </defs>
+
+                  {/* base disc (slightly translucent, with shadow) */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={r}
+                    fill="rgba(255,255,255,0.75)"
+                    filter="url(#dotShadow)"
+                  />
 
                   {oneSlice ? (
                     // FULL CIRCLE for single-activity days
@@ -354,8 +378,28 @@ export default function CalendarMileageFill({
                     })()
                   )}
 
-                  {/* edge ring */}
-                  <circle cx={cx} cy={cy} r={r - 0.5} fill="none" stroke={edgeCol} strokeWidth="1" />
+                  {/* soft highlight overlay */}
+                  <circle cx={cx} cy={cy} r={r} fill="url(#dotHighlight)" />
+
+                  {/* outer crisp ring */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={r - 0.6}
+                    fill="none"
+                    stroke="rgba(15,23,42,0.35)"
+                    strokeWidth="1.2"
+                  />
+
+                  {/* inner coloured ring */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={r - 2.2}
+                    fill="none"
+                    stroke={edgeCol}
+                    strokeWidth="1"
+                  />
 
                   {showLabel && (
                     <text
@@ -363,9 +407,14 @@ export default function CalendarMileageFill({
                       y={cy}
                       textAnchor="middle"
                       dominantBaseline="central"
-                      fontSize={Math.max(10, Math.round(dotSize * 0.32))}
-                      fontWeight="700"
-                      fill="#0f172a"
+                      fontSize={Math.max(11, Math.round(dotSize * 0.34))}
+                      fontWeight="800"
+                      fill="#0b1020"
+                      style={{
+                        paintOrder: "stroke",
+                        stroke: "rgba(255,255,255,0.6)",
+                        strokeWidth: 1,
+                      }}
                     >
                       {c.totalKm.toFixed(1)}
                     </text>
@@ -382,21 +431,13 @@ export default function CalendarMileageFill({
       {/* Legend */}
       <div
         ref={legendRef}
-        style={{
-          marginTop: 8,
-          display: "grid",
-          gridTemplateColumns: "repeat(4, auto) 1fr",
-          alignItems: "center",
-          gap: 10,
-          fontSize: 11,
-          color: "#475569"
-        }}
+        style={styles.legend}
       >
         <LegendItem color={COLORS.walk.fill}    edge={COLORS.walk.edge} label={COLORS.walk.label} />
         <LegendItem color={COLORS.workout.fill} edge={COLORS.workout.edge} label={COLORS.workout.label} />
         <LegendItem color={COLORS.long.fill}    edge={COLORS.long.edge} label={COLORS.long.label} />
         <LegendItem color={COLORS.jog.fill}     edge={COLORS.jog.edge} label={COLORS.jog.label} />
-        <div style={{ textAlign: "right", color: "#64748b" }}>Scale max: {scaleMaxKm.toFixed(1)} km</div>
+        <div style={styles.scaleText}>Scale max: {scaleMaxKm.toFixed(1)} km</div>
       </div>
     </div>
   );
@@ -404,7 +445,7 @@ export default function CalendarMileageFill({
 
 function LegendItem({ color, edge, label }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={styles.legendItem}>
       <div style={{
         width: 12, height: 12, borderRadius: "50%",
         background: color, boxShadow: `inset 0 0 0 1px ${edge}`
@@ -414,25 +455,139 @@ function LegendItem({ color, edge, label }) {
   );
 }
 
-const btnStyle = {
-  padding: "4px 8px",
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
-  background: "#fff",
-  cursor: "pointer",
-  fontSize: 12,
+// ---------- styles ----------
+const styles = {
+  panel: {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 18,
+    padding: 14,
+    height: "calc(100vh - 140px)",
+    minHeight: 520,
+    boxShadow: "0 12px 30px rgba(0,0,0,0.35)",
+    backdropFilter: "blur(6px)",
+    color: "#e5e7eb",
+    overflow: "hidden",
+  },
+
+  headerRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  titleBlock: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  titlePill: {
+    display: "inline-flex",
+    width: "fit-content",
+    alignItems: "center",
+    gap: 8,
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.85)",
+  },
+  title: {
+    margin: 0,
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#fff",
+    letterSpacing: 0.2,
+  },
+
+  nav: {
+    marginLeft: "auto",
+    display: "flex",
+    gap: 6,
+  },
+  navBtn: {
+    padding: "6px 9px",
+    border: "1px solid rgba(255,255,255,0.14)",
+    borderRadius: 8,
+    background: "rgba(255,255,255,0.06)",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  todayBtn: {
+    padding: "6px 10px",
+    border: "1px solid rgba(255,255,255,0.18)",
+    borderRadius: 8,
+    background: "rgba(255,255,255,0.12)",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+
+  monthLabel: {
+    fontSize: 14,
+    fontWeight: 700,
+    marginBottom: 6,
+    textAlign: "center",
+    color: "rgba(255,255,255,0.95)",
+    letterSpacing: 0.3,
+  },
+
+  weekHeader: {
+    display: "grid",
+    gap: 10,
+    marginBottom: 6,
+    fontSize: 11,
+    color: "rgba(229,231,235,0.7)",
+    textAlign: "center",
+    justifyContent: "center",
+  },
+
+  legend: {
+    marginTop: 10,
+    display: "grid",
+    gridTemplateColumns: "repeat(4, auto) 1fr",
+    alignItems: "center",
+    gap: 10,
+    fontSize: 11,
+    color: "rgba(229,231,235,0.8)",
+  },
+  legendItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  scaleText: {
+    textAlign: "right",
+    color: "rgba(229,231,235,0.6)",
+  },
 };
 
+// Option B brighter tiles
 const outerCell = (isToday, clickable, cellPx) => ({
   position: "relative",
   width: cellPx,
   height: cellPx,
-  background: "transparent",
-  border: "none",
+
+  background: isToday
+    ? "rgba(255,255,255,0.22)"
+    : "rgba(255,255,255,0.16)",
+
+  border: isToday
+    ? "2px solid rgba(167,243,208,0.9)"
+    : "1px solid rgba(255,255,255,0.22)",
+
+  boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
   padding: 0,
   cursor: clickable ? "pointer" : "default",
-  outline: isToday ? "2px solid #a7f3d0" : "none",
-  borderRadius: 10,
+  borderRadius: 12,
+  outline: "none",
 });
 
 const svgCentred = {
@@ -449,5 +604,7 @@ const restLabel = {
   top: "50%",
   transform: "translate(-50%, -50%)",
   fontSize: 12,
-  color: "#94a3b8",
+  fontWeight: 600,
+  color: "rgba(229,231,235,0.65)",
+  letterSpacing: 0.2,
 };

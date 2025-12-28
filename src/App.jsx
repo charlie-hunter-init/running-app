@@ -6,12 +6,14 @@ import InsightsView from "./components/insights/InsightsView";
 import PersonalBestView from "./components/personalBest/PersonalBestView";
 import RecentRunsList from "./components/runs/RecentRunsList";
 import CalendarView from "./components/calendar/CalendarView";
-import WrapView from "./components/wrapped/WrapView"; // NEW (you'll create this)
+import WrapView from "./components/wrapped/WrapView";
+import "./app.css";
 
-const SIDEBAR_WIDTH = 340; // keep the map big
+const SIDEBAR_WIDTH = 340; // desktop width
+const SIDEBAR_GUTTER = 5; // NEW: space between map + sidebar
+const SIDEBAR_RIGHT_PAD = 100; // NEW: space from right edge
 
 export default function StravaHeatmapApp() {
-  // values: map | insights | calendar | pb | wrapped
   const [tab, setTab] = useState("map");
 
   const [geojson, setGeojson] = useState(null);
@@ -24,6 +26,17 @@ export default function StravaHeatmapApp() {
   const [type, setType] = useState("All");
   const [shoe, setShoe] = useState("All");
   const [weeklyRange, setWeeklyRange] = useState("all");
+
+  // Responsive breakpoint
+  const [isMobile, setIsMobile] = useState(
+    window.matchMedia("(max-width: 900px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = (e) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   // Line colours
   const lineColors = React.useMemo(
@@ -46,10 +59,22 @@ export default function StravaHeatmapApp() {
 
   // Load data once
   useEffect(() => {
-    fetch("/runs.geojson").then(r => (r.ok ? r.json() : null)).then(j => j && setGeojson(j)).catch(() => {});
-    fetch("/stats.json").then(r => (r.ok ? r.json() : null)).then(s => s && setStats(s)).catch(() => {});
-    fetch("/personal_bests.json").then(r => (r.ok ? r.json() : null)).then(p => p && setPb(p)).catch(() => {});
-    fetch("/runs_index.json").then(r => (r.ok ? r.json() : null)).then(idx => idx && setIndexData(idx)).catch(() => {});
+    fetch("/runs.geojson")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j && setGeojson(j))
+      .catch(() => {});
+    fetch("/stats.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => s && setStats(s))
+      .catch(() => {});
+    fetch("/personal_bests.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => p && setPb(p))
+      .catch(() => {});
+    fetch("/runs_index.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((idx) => idx && setIndexData(idx))
+      .catch(() => {});
   }, []);
 
   const features = geojson?.features || [];
@@ -58,13 +83,13 @@ export default function StravaHeatmapApp() {
   useEffect(() => {
     if (!features.length) return;
     if (type !== "All") {
-      const present = new Set(features.map(f => f?.properties?.type).filter(Boolean));
+      const present = new Set(features.map((f) => f?.properties?.type).filter(Boolean));
       if (!present.has(type)) setType("All");
     }
     if (year !== "All") {
       const present = new Set(
         features
-          .map(f => {
+          .map((f) => {
             const p = f.properties || {};
             return p.year || (p.start_date ? new Date(p.start_date).getUTCFullYear().toString() : null);
           })
@@ -75,7 +100,7 @@ export default function StravaHeatmapApp() {
     if (shoe !== "All") {
       const present = new Set(
         features
-          .map(f => {
+          .map((f) => {
             const p = f.properties || {};
             return p.shoe_name || p.gear_name || p.gear_id || null;
           })
@@ -143,20 +168,18 @@ export default function StravaHeatmapApp() {
     setSelectedKm(null);
   }
 
-  const last1000 = useMemo(() => (indexData?.items || []).slice(0, 1000), [indexData]);
-
-  // NOTE: Wrapped should ignore UI filters and use calendar years only.
-  // So give it the raw items/features and let WrapView pick current vs previous year.
+  const last1000 = useMemo(() => (indexData?.items || []).slice(0, 2000), [indexData]);
   const allIndexItems = indexData?.items || [];
 
   return (
     <div
+      className="app-root"
       style={{
         position: "fixed",
         inset: 0,
         display: "grid",
         gridTemplateRows: "auto 1fr",
-        background: "#f8fafc",
+        background: "#05060a",
         minWidth: 0,
         minHeight: 0,
       }}
@@ -170,13 +193,12 @@ export default function StravaHeatmapApp() {
         lineColorName={lineColorName} setLineColorName={setLineColorName}
         lineColors={lineColors}
         onFile={handleFile}
-        // NEW: if your Header supports a tabs prop, add Wrapped here.
-        // If it doesn't, just add a Wrapped button in Header manually.
+        isMobile={isMobile}
         tabs={[
           { id: "map", label: "Map" },
           { id: "insights", label: "Insights" },
           { id: "calendar", label: "Calendar" },
-          { id: "wrapped", label: "Wrapped" }, // NEW
+          { id: "wrapped", label: "Wrapped" },
           { id: "pb", label: "PBs" },
         ]}
       />
@@ -186,29 +208,56 @@ export default function StravaHeatmapApp() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: `minmax(0, 1fr) ${SIDEBAR_WIDTH}px`,
-              gap: 0,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : `minmax(0, 1fr) ${SIDEBAR_WIDTH}px`,
+              gridTemplateRows: isMobile ? "1fr auto" : "1fr",
+              gap: isMobile ? 0 : SIDEBAR_GUTTER, // NEW: gutter only on desktop
               height: "100%",
               minHeight: 0,
+              paddingRight: isMobile ? 0 : SIDEBAR_RIGHT_PAD, // NEW: push sidebar off edge
+              boxSizing: "border-box",
             }}
           >
-            <MapView
-              filtered={filtered}
-              lineColor={lineColor}
-              selectedFeature={selectedFeature}
-              highlightColor="#ff6a00"
-              selectedKm={selectedKm}
-              selectedKmColor="#3b82f6"
-            />
-            <RecentRunsList
-              items={last1000}
-              selectedId={selectedRunId}
-              selectedKm={selectedKm}
-              onSelect={(id) => selectRun(id)}
-              onSelectSplit={(runId, km) => { selectRun(runId); setSelectedKm(km); }}
-              onClear={clearSelection}
-              pageSize={50}
-            />
+            {/* Map */}
+            <div style={{ minHeight: 0 }}>
+              <MapView
+                filtered={filtered}
+                lineColor={lineColor}
+                selectedFeature={selectedFeature}
+                highlightColor="#ff6a00"
+                selectedKm={selectedKm}
+                selectedKmColor="#3b82f6"
+                isMobile={isMobile}
+              />
+            </div>
+
+            {/* Sidebar wrapper */}
+            <div
+              style={{
+                height: isMobile ? "42dvh" : "100%",
+                minHeight: 0,
+                borderTop: isMobile ? "1px solid rgba(255,255,255,0.08)" : "none",
+                background: isMobile ? "#05060a" : "transparent",
+
+                // NEW: subtle separation from map
+                borderRadius: isMobile ? 0 : 12,
+                overflow: "hidden",
+                boxShadow: isMobile
+                  ? "none"
+                  : "0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.45)",
+              }}
+            >
+              <RecentRunsList
+                items={last1000}
+                selectedId={selectedRunId}
+                selectedKm={selectedKm}
+                onSelect={(id) => selectRun(id)}
+                onSelectSplit={(runId, km) => { selectRun(runId); setSelectedKm(km); }}
+                onClear={clearSelection}
+                pageSize={50}
+              />
+            </div>
           </div>
         ) : tab === "insights" ? (
           <InsightsView
@@ -226,10 +275,8 @@ export default function StravaHeatmapApp() {
           />
         ) : tab === "wrapped" ? (
           <WrapView
-            // WrapView should do: current calendar year (NZ time) vs previous calendar year.
-            // It should NOT use the UI filters.
             items={allIndexItems}
-            features={features} // optional if you want geometry-linked stats later
+            features={features}
           />
         ) : (
           <PersonalBestView pb={pb} features={features} />

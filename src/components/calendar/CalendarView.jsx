@@ -1,30 +1,42 @@
 import React from "react";
-import CalendarMileageFill from "./CalendarMileageDots"; // ensure the filename matches
+import CalendarMileageFill from "./CalendarMileageDots";
 
 /**
  * CalendarView
  * Wrapper for the calendar. Uses items (from runs_index.json) for pace/duration.
- *
- * Props:
- * - features: all GeoJSON features (unfiltered)
- * - filtered: filtered features (optional)
- * - items:    indexData.items (preferred for correct pace/long/workout detection)
  */
 export default function CalendarView({ features, filtered, items = [] }) {
-  // If you want the calendar to respect current map filters, keep using `filtered` for geometry-based stuff.
-  // For classification (walk/workout/long/jog), we rely on `items` which includes timing/pace.
-  // You can optionally filter `items` to match your year/type/shoe filters if desired.
-
   return (
-    <div style={{ height: "100%", overflow: "auto", padding: 16 }}>
-      <CalendarMileageFill
-        items={items}                 // <— use the data from runs_index.json
-        // features={filtered?.length ? filtered : features} // optional fallback (not needed)
-        title="Mileage calendar"
-        maxKmForScale={30}
-        // startFromLatest={true}
-        // onDayClick={(key, km, slices) => console.log("Clicked:", key, km, slices)}
-      />
+    <div style={styles.page}>
+      <div style={styles.wrap}>
+        <CalendarMileageFill
+          items={items}
+          title="Mileage calendar"
+          maxKmForScale={30}
+          fitToContainer={true}
+        />
+      </div>
     </div>
   );
 }
+
+const styles = {
+  page: {
+    height: "100%",
+    width: "100%",
+    overflowY: "auto",
+    overflowX: "hidden",
+    WebkitOverflowScrolling: "touch",
+    background:
+      "radial-gradient(1200px 600px at 15% -10%, #1d4ed8 0%, transparent 60%)," +
+      "radial-gradient(1000px 600px at 110% 20%, #06b6d4 0%, transparent 55%)," +
+      "radial-gradient(1000px 600px at 50% 120%, #a855f7 0%, transparent 55%)," +
+      "linear-gradient(180deg, #05060a 0%, #0b1020 100%)",
+    color: "#e5e7eb",
+  },
+  wrap: {
+    maxWidth: 1200,
+    margin: "0 auto",
+    padding: "18px 18px 36px",
+  },
+};
