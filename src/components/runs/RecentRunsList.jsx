@@ -24,8 +24,57 @@ function formatDate(iso) {
 }
 function formatElevation(m) { if (m == null) return ""; return `${Math.round(m)} m`; }
 
+// ---------- geometry helpers ----------
+function haversineMeters(a, b) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const [lng1, lat1] = a, [lng2, lat2] = b;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/**
+ * Given a GeoJSON feature, compute per-km splits using the line geometry.
+ * Returns [{ km, distanceM, elapsedM }] where elapsedM is metres walked so far.
+ * Pace cannot be derived from geometry alone (no time data), so it's omitted.
+ */
+function computeGeomSplits(feature) {
+  const geom = feature?.geometry;
+  if (!geom) return [];
+  const coords =
+    geom.type === "LineString"
+      ? geom.coordinates
+      : geom.type === "MultiLineString"
+      ? geom.coordinates.flat()
+      : null;
+  if (!coords || coords.length < 2) return [];
+
+  let totalM = 0;
+  const cumulative = [0]; // cumulative distance at each coord index
+  for (let i = 1; i < coords.length; i++) {
+    totalM += haversineMeters(coords[i - 1], coords[i]);
+    cumulative.push(totalM);
+  }
+
+  const splits = [];
+  const fullKms = Math.floor(totalM / 1000);
+  const numSplits = fullKms + (totalM % 1000 > 50 ? 1 : 0); // include partial last km if > 50m
+
+  for (let k = 1; k <= numSplits; k++) {
+    const fromM = (k - 1) * 1000;
+    const toM = Math.min(k * 1000, totalM);
+    splits.push({ km: k, distanceM: Math.round(toM - fromM) });
+  }
+
+  return splits;
+}
+
 const LONG_RUN_SECONDS = 70 * 60; // 1h10m
-const WORKOUT_PACE_S_PER_KM = 240; // faster than 4:00/km
+const WORKOUT_PACE_S_PER_KM = 250; // faster than 4:10/km
 const WALK_PACE_S_PER_KM = 9 * 60; // > 9:00/km is a walk
 
 // ---------- kind theme ----------
@@ -62,12 +111,13 @@ const KIND_THEME = {
     strip: "#34d399",
     text: "#dcfce7",
   },
-  none: {
-    label: "run",
-    bg: "rgba(255,255,255,0.05)",
-    border: "rgba(255,255,255,0.10)",
-    strip: "#64748b",
-    text: "#e5e7eb",
+  tread: {
+    label: "🏃 treadmill",
+    bg:
+      "linear-gradient(135deg, rgba(236,72,153,0.18) 0%, rgba(244,114,182,0.10) 55%, rgba(0,0,0,0.15) 100%)",
+    border: "rgba(249,168,212,0.45)",
+    strip: "#f472b6",
+    text: "#fce7f3",
   },
 };
 
@@ -275,6 +325,7 @@ const styles = {
 // ---------- component ----------
 export default function RecentRunsList({
   items,
+  idToFeature,
   selectedId,
   selectedKm,
   onSelect,
@@ -407,7 +458,7 @@ export default function RecentRunsList({
             >
               <option value="all">All</option>
               <option value="walk">Walk (&gt; 9:00/km)</option>
-              <option value="workout">Workout (&lt; 4:00/km)</option>
+              <option value="workout">Workout (&lt; 4:10/km)</option>
               <option value="long">Long run (≥ 1:10)</option>
               <option value="jog">Jog</option>
             </select>
@@ -452,10 +503,12 @@ export default function RecentRunsList({
 
           const elevStr = item.total_elevation_gain != null ? formatElevation(item.total_elevation_gain) : "";
 
+          const isTread = !hasMap && /tread/i.test(name);
           const isWalk = secPerKm != null && secPerKm > WALK_PACE_S_PER_KM;
           const isWorkout = !isWalk && secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
           const isLong = !isWalk && (durationSec || 0) >= LONG_RUN_SECONDS;
           const theme =
+            isTread ? KIND_THEME.tread :
             isWalk ? KIND_THEME.walk :
             isWorkout ? KIND_THEME.workout :
             isLong ? KIND_THEME.long :
@@ -516,65 +569,85 @@ export default function RecentRunsList({
                     </div>
                   )}
 
-                  {/* Splits */}
-                  {item.has_splits && (
-                    <div style={{ marginTop: 12 }}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>Splits</div>
+                  {/* Splits — real file if available, geometry-derived for all mapped runs */}
+                  {hasMap && (() => {
+                    const feature = idToFeature?.get(id);
+                    const geomSplits = feature ? computeGeomSplits(feature) : [];
+                    const realSplits = splitsById[id];
+                    const usingReal = item.has_splits && Array.isArray(realSplits) && realSplits.length > 0;
+                    const showSplits = usingReal || geomSplits.length > 0;
 
-                      {splitsLoading[id] && (
-                        <div style={{ fontSize: 12, color: "rgba(229,231,235,0.7)" }}>Loading splits…</div>
-                      )}
+                    if (!showSplits && !splitsLoading[id]) return null;
 
-                      {splitsError[id] && (
-                        <div style={{ fontSize: 12, color: "#fca5a5" }}>{splitsError[id]}</div>
-                      )}
+                    return (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <div style={{ fontWeight: 800 }}>Km splits</div>
+                          {!usingReal && geomSplits.length > 0 && (
+                            <span style={{ fontSize: 10, color: "rgba(229,231,235,0.5)", fontStyle: "italic" }}>
+                              from GPS trace
+                            </span>
+                          )}
+                        </div>
 
-                      {!splitsLoading[id] && !splitsError[id] && (
-                        Array.isArray(splitsById[id]) && splitsById[id].length > 0 ? (
-                          <table style={styles.splitsTable}>
-                            <thead>
-                              <tr style={styles.splitsHeadRow}>
-                                <th style={{ padding: "6px 8px" }}>Km</th>
-                                <th style={{ padding: "6px 8px" }}>Time</th>
-                                <th style={{ padding: "6px 8px" }}>Pace</th>
-                                <th style={{ padding: "6px 8px" }}>Elev</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {splitsById[id].map((s, i) => {
-                                const km = s.split ?? (i + 1);
-                                const dKm = s.distance ? (s.distance / 1000) : 1;
-                                const spk = s.moving_time && dKm > 0 ? (s.moving_time / dKm) : null;
+                        {splitsLoading[id] && (
+                          <div style={{ fontSize: 12, color: "rgba(229,231,235,0.7)" }}>Loading splits…</div>
+                        )}
+                        {splitsError[id] && (
+                          <div style={{ fontSize: 12, color: "#fca5a5" }}>{splitsError[id]}</div>
+                        )}
 
-                                const isActiveSplit = selectedId === id && selectedKm === km;
-                                return (
-                                  <tr
-                                    key={i}
-                                    onClick={() => handleClickSplit(id, km)}
-                                    title={`Highlight km ${km} on the map`}
-                                    aria-selected={isActiveSplit}
-                                    style={{
-                                      borderTop: "1px solid rgba(255,255,255,0.08)",
-                                      cursor: "pointer",
-                                      background: isActiveSplit ? "rgba(59,130,246,0.18)" : "transparent",
-                                      fontWeight: isActiveSplit ? 800 : 500,
-                                    }}
-                                  >
-                                    <td style={{ padding: "6px 8px" }}>{km}</td>
-                                    <td style={{ padding: "6px 8px" }}>{formatDuration(s.moving_time ?? s.elapsed_time)}</td>
-                                    <td style={{ padding: "6px 8px" }}>{spk ? formatPace(spk) : "—"}</td>
-                                    <td style={{ padding: "6px 8px" }}>{formatElevation(s.elevation_difference)}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        ) : (
-                          <div style={{ fontSize: 12, color: "rgba(229,231,235,0.7)" }}>No splits available.</div>
-                        )
-                      )}
-                    </div>
-                  )}
+                        {!splitsLoading[id] && (() => {
+                          const rows = usingReal ? realSplits : geomSplits;
+                          return (
+                            <table style={styles.splitsTable}>
+                              <thead>
+                                <tr style={styles.splitsHeadRow}>
+                                  <th style={{ padding: "6px 8px" }}>Km</th>
+                                  <th style={{ padding: "6px 8px" }}>Dist</th>
+                                  {usingReal && <th style={{ padding: "6px 8px" }}>Time</th>}
+                                  {usingReal && <th style={{ padding: "6px 8px" }}>Pace</th>}
+                                  {usingReal && <th style={{ padding: "6px 8px" }}>Elev</th>}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map((s, i) => {
+                                  const km = usingReal ? (s.split ?? (i + 1)) : s.km;
+                                  const distM = usingReal ? s.distance : s.distanceM;
+                                  const dKm = distM ? (distM / 1000) : 1;
+                                  const spk = usingReal && s.moving_time && dKm > 0
+                                    ? (s.moving_time / dKm)
+                                    : null;
+                                  const isActiveSplit = selectedId === id && selectedKm === km;
+
+                                  return (
+                                    <tr
+                                      key={i}
+                                      onClick={() => handleClickSplit(id, km)}
+                                      title={`Highlight km ${km} on the map`}
+                                      aria-selected={isActiveSplit}
+                                      style={{
+                                        borderTop: "1px solid rgba(255,255,255,0.08)",
+                                        cursor: "pointer",
+                                        background: isActiveSplit ? "rgba(59,130,246,0.18)" : "transparent",
+                                        fontWeight: isActiveSplit ? 800 : 500,
+                                      }}
+                                    >
+                                      <td style={{ padding: "6px 8px" }}>{km}</td>
+                                      <td style={{ padding: "6px 8px" }}>{distM ? `${(distM / 1000).toFixed(2)} km` : "—"}</td>
+                                      {usingReal && <td style={{ padding: "6px 8px" }}>{formatDuration(s.moving_time ?? s.elapsed_time)}</td>}
+                                      {usingReal && <td style={{ padding: "6px 8px" }}>{spk ? formatPace(spk) : "—"}</td>}
+                                      {usingReal && <td style={{ padding: "6px 8px" }}>{formatElevation(s.elevation_difference)}</td>}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

@@ -3,7 +3,7 @@ import { TZ, dayKeyFromDate } from "../../lib/streak";
 
 // ---- Thresholds
 const LONG_RUN_SECONDS = 70 * 60; // 1h10m
-const WORKOUT_PACE_SPK = 240;     // < 4:00 per km
+const WORKOUT_PACE_SPK = 250;     // < 4:10 per km
 const WALK_PACE_SPK    = 540;     // >= 9:00 per km
 
 // Slice order for consistent pies/legend

@@ -1,271 +1,456 @@
-import React from "react";
-import { fmtDate } from "../../lib/geo";
+import React, { useEffect, useMemo, useState } from "react";
 
-// ------- small utils -------
+// ─── format helpers ────────────────────────────────────────────────────────────
 function formatHMS(totalSeconds) {
-  if (totalSeconds == null || !isFinite(totalSeconds)) return "—";
+  if (totalSeconds == null || !isFinite(totalSeconds) || totalSeconds <= 0) return "—";
   const s = Math.round(totalSeconds);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const r = s % 60;
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${m}:${String(r).padStart(2, "0")}`;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+    : `${m}:${String(r).padStart(2, "0")}`;
 }
 
 function formatPace(secPerKm) {
-  if (!isFinite(secPerKm) || secPerKm <= 0) return "—";
+  if (!secPerKm || !isFinite(secPerKm) || secPerKm <= 0) return "—";
   const m = Math.floor(secPerKm / 60);
   const s = Math.round(secPerKm % 60);
   return `${m}:${String(s).padStart(2, "0")}/km`;
 }
 
-// Tiny polyline decoder (no extra deps)
-function decodePolyline(str, precision = 5) {
-  let index = 0, lat = 0, lng = 0, coordinates = [];
-  const factor = Math.pow(10, precision);
-  while (index < str.length) {
-    let b, shift = 0, result = 0;
-    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1); lat += dlat;
-    shift = 0; result = 0;
-    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1); lng += dlng;
-    coordinates.push([lat / factor, lng / factor]); // [lat, lon]
-  }
-  return coordinates;
-}
-
-// Convert [lat,lon] array into an SVG path fit into width x height with padding
-function svgPathFromLatLngs(latlngs, width, height, pad = 8) {
-  if (!latlngs || !latlngs.length) return "";
-  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
-  for (const [lat, lon] of latlngs) {
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lon < minLon) minLon = lon;
-    if (lon > maxLon) maxLon = lon;
-  }
-  const spanLon = Math.max(1e-9, maxLon - minLon);
-  const spanLat = Math.max(1e-9, maxLat - minLat);
-  const sx = (width - 2 * pad) / spanLon;
-  const sy = (height - 2 * pad) / spanLat;
-  const s = Math.min(sx, sy);
-  const ox = pad - minLon * s;
-  const oy = pad + maxLat * s; // y flips (lat downwards)
-  // build path
-  let d = "";
-  for (let i = 0; i < latlngs.length; i++) {
-    const [lat, lon] = latlngs[i];
-    const x = lon * s + ox;
-    const y = -lat * s + oy;
-    d += (i === 0 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1) + " ";
-  }
-  return d.trim();
-}
-
-// A tiny inline map preview
-function MapPreview({ polyline, height = 180 }) {
-  const containerStyle = {
-    width: "100%",
-    height,
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: 8,
-  };
-  if (!polyline) {
-    return (
-      <div style={{ ...containerStyle, display: "grid", placeItems: "center", color: "#64748b", fontSize: 13 }}>
-        No map available for this activity (will appear after next sync)
-      </div>
-    );
-  }
-  let pathD = "";
+function fmtDate(iso) {
+  if (!iso) return "—";
   try {
-    const pts = decodePolyline(polyline);
-    pathD = svgPathFromLatLngs(pts, 800, height - 0); // viewBox will scale down proportionally
-  } catch {
-    // ignore
-  }
-  return (
-    <div style={containerStyle}>
-      <svg viewBox={`0 0 800 ${height}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
-        <rect x="0" y="0" width="800" height={height} fill="none" />
-        {pathD ? (
-          <path
-            d={pathD}
-            fill="none"
-            stroke="#0ea5e9"
-            strokeWidth="3"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-        ) : (
-          <text x="50%" y="50%" textAnchor="middle" fill="#64748b" fontSize="12">Unable to draw polyline</text>
-        )}
-      </svg>
-    </div>
-  );
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+    });
+  } catch { return "—"; }
 }
 
-// ------- main view -------
-export default function PersonalBestView({ pb }) {
-  const events = pb?.events || null;
+// ─── geometry helpers ──────────────────────────────────────────────────────────
+function haversineMeters(a, b) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const [lng1, lat1] = a, [lng2, lat2] = b;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
 
-  const cardStyle = { background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 12 };
-  const tableHeader = { fontSize: 12, color: "#6b7280" };
-  const title = { margin: 0, fontSize: 16 };
+/**
+ * Given a flat array of [lng, lat] coords and the run's total moving_time,
+ * find the fastest contiguous window of exactly targetMeters distance.
+ * Returns the time in seconds for that window, or null if the run is too short.
+ */
+function fastestWindowFromGeom(coords, movingTimeSec, targetMeters) {
+  if (!coords || coords.length < 2 || !movingTimeSec) return null;
 
-  if (!events) {
+  // Build cumulative distance array
+  const cum = [0];
+  for (let i = 1; i < coords.length; i++) {
+    cum.push(cum[i - 1] + haversineMeters(coords[i - 1], coords[i]));
+  }
+  const totalDist = cum[cum.length - 1];
+  if (totalDist < targetMeters * 0.95) return null; // run too short
+
+  // Sliding window: for each start index i, binary-search for end index j
+  // where cum[j] - cum[i] >= targetMeters
+  let bestTime = Infinity;
+  for (let i = 0; i < cum.length - 1; i++) {
+    const target = cum[i] + targetMeters;
+    if (target > totalDist) break;
+
+    // Binary search for first j where cum[j] >= target
+    let lo = i + 1, hi = cum.length - 1, j = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] >= target) { j = mid; hi = mid - 1; }
+      else lo = mid + 1;
+    }
+    if (j === -1) continue;
+
+    const segDist = cum[j] - cum[i];
+    // Proportional time: segment covers segDist / totalDist of the run
+    const segTime = (segDist / totalDist) * movingTimeSec;
+    // Scale down to exactly targetMeters
+    const scaledTime = segTime * (targetMeters / segDist);
+    if (scaledTime < bestTime) bestTime = scaledTime;
+  }
+
+  return bestTime === Infinity ? null : bestTime;
+}
+
+/**
+ * Given per-km split rows (each has distance, moving_time) find the fastest
+ * consecutive window covering exactly targetMeters.
+ * This is exact — uses real per-km times.
+ */
+function fastestWindowFromSplits(splits, targetMeters) {
+  if (!splits || splits.length === 0) return null;
+
+  // Build cumulative distance and time arrays
+  const cumDist = [0];
+  const cumTime = [0];
+  for (const s of splits) {
+    cumDist.push(cumDist[cumDist.length - 1] + (s.distance || 0));
+    cumTime.push(cumTime[cumTime.length - 1] + (s.moving_time || 0));
+  }
+
+  const totalDist = cumDist[cumDist.length - 1];
+  if (totalDist < targetMeters * 0.95) return null;
+
+  let bestTime = Infinity;
+
+  for (let i = 0; i < cumDist.length - 1; i++) {
+    const target = cumDist[i] + targetMeters;
+    if (target > totalDist + 50) break; // 50m tolerance
+
+    // Find j where cumDist[j] >= target
+    let lo = i + 1, hi = cumDist.length - 1, j = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (cumDist[mid] >= target) { j = mid; hi = mid - 1; }
+      else lo = mid + 1;
+    }
+    if (j === -1) continue;
+
+    const segDist = cumDist[j] - cumDist[i];
+    const segTime = cumTime[j] - cumTime[i];
+    // Scale to exact target distance
+    const scaledTime = segTime * (targetMeters / segDist);
+    if (scaledTime < bestTime) bestTime = scaledTime;
+  }
+
+  return bestTime === Infinity ? null : bestTime;
+}
+
+// ─── constants ────────────────────────────────────────────────────────────────
+const DISTANCES = [
+  { key: "1k",  label: "1 km",         meters: 1000 },
+  { key: "5k",  label: "5 km",         meters: 5000 },
+  { key: "10k", label: "10 km",        meters: 10000 },
+  { key: "hm",  label: "Half Marathon",meters: 21097.5 },
+];
+
+// ─── main component ────────────────────────────────────────────────────────────
+export default function PersonalBestView({ features }) {
+  const [splitsCache, setSplitsCache] = useState({}); // id -> splits[]
+  const [loadingDone, setLoadingDone] = useState(false);
+
+  // All runs that have a map
+  const mappedFeatures = useMemo(
+    () => (features || []).filter((f) => f?.geometry && f?.properties?.start_date),
+    [features]
+  );
+
+  // IDs of runs that have split files available
+  const splitIds = useMemo(() => {
+    // Check runs_index for has_splits — but we don't have that here.
+    // Instead we'll attempt to load all splits files and cache what works.
+    return mappedFeatures
+      .map((f) => String(f.properties.id))
+      .filter(Boolean);
+  }, [mappedFeatures]);
+
+  // Fetch all available split files in parallel on mount / when features change
+  useEffect(() => {
+    if (splitIds.length === 0) { setLoadingDone(true); return; }
+    setLoadingDone(false);
+
+    let cancelled = false;
+    const BATCH = 20; // parallel fetch batch size
+
+    async function loadAll() {
+      const cache = {};
+      for (let i = 0; i < splitIds.length; i += BATCH) {
+        if (cancelled) break;
+        const batch = splitIds.slice(i, i + BATCH);
+        await Promise.all(
+          batch.map(async (id) => {
+            try {
+              const res = await fetch(`/splits/${id}.json`);
+              if (!res.ok) return;
+              const json = await res.json();
+              const splits = json?.splits || json?.splits_metric || [];
+              if (splits.length > 0) cache[id] = splits;
+            } catch {
+              // no split file — will fall back to geometry
+            }
+          })
+        );
+      }
+      if (!cancelled) {
+        setSplitsCache(cache);
+        setLoadingDone(true);
+      }
+    }
+
+    loadAll();
+    return () => { cancelled = true; };
+  }, [splitIds]);
+
+  // ── Compute PBs ──────────────────────────────────────────────────────────────
+  const pbs = useMemo(() => {
+    if (!loadingDone) return null;
+
+    // result: { [key]: [{ timeSec, pace, feature, source }] sorted fastest first }
+    const results = {};
+    for (const d of DISTANCES) results[d.key] = [];
+
+    for (const feature of mappedFeatures) {
+      const p = feature.properties || {};
+      const id = String(p.id);
+      const movingTime = p.moving_time ?? p.elapsed_time ?? 0;
+      const geom = feature.geometry;
+
+      const coords =
+        geom.type === "LineString"
+          ? geom.coordinates
+          : geom.type === "MultiLineString"
+          ? geom.coordinates.flat()
+          : null;
+
+      const splits = splitsCache[id] || null;
+
+      for (const { key, meters } of DISTANCES) {
+        let timeSec = null;
+        let source = "geom";
+
+        if (splits) {
+          timeSec = fastestWindowFromSplits(splits, meters);
+          if (timeSec) source = "splits";
+        }
+
+        // Fall back to geometry interpolation
+        if (!timeSec && coords && movingTime > 0) {
+          timeSec = fastestWindowFromGeom(coords, movingTime, meters);
+          source = "geom";
+        }
+
+        if (timeSec && timeSec > 0) {
+          results[key].push({
+            timeSec,
+            pace: timeSec / (meters / 1000),
+            source,
+            name: p.name || "Run",
+            date: p.start_date,
+            id,
+          });
+        }
+      }
+    }
+
+    // Sort each distance: fastest first
+    for (const d of DISTANCES) {
+      results[d.key].sort((a, b) => a.timeSec - b.timeSec);
+    }
+
+    return results;
+  }, [loadingDone, mappedFeatures, splitsCache]);
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  if (!loadingDone || !pbs) {
+    const total = splitIds.length;
+    const done = Object.keys(splitsCache).length;
     return (
-      <div style={{ height: "100%", overflow: "auto", padding: 16 }}>
-        <div style={{ ...cardStyle }}>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Personal Bests</div>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>
-            Loading <code>personal_bests.json</code>… (or none found yet)
+      <div style={styles.page}>
+        <div style={styles.loadingCard}>
+          <div style={styles.loadingTitle}>Calculating Personal Bests…</div>
+          <div style={styles.loadingBar}>
+            <div
+              style={{
+                ...styles.loadingFill,
+                width: total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
+              }}
+            />
+          </div>
+          <div style={styles.loadingSub}>
+            {done} / {total} runs processed
           </div>
         </div>
       </div>
     );
   }
 
-  const keys = ["hm", "10k", "5k", "1k"]; // display order
-  const labels = { hm: "Half Marathon", "10k": "10K", "5k": "5K", "1k": "1K" };
-
-  const PBCard = ({ k }) => {
-    const e = events[k];
-    const best = e?.top?.[0] || null;
-    return (
-      <div style={cardStyle}>
-        <div style={{ ...tableHeader }}>{labels[k]} PB</div>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>
-          {best ? formatHMS(best.elapsed_time_s) : "—"}
-        </div>
-        <div style={{ fontSize: 12, color: "#6b7280" }}>
-          {best ? `${formatPace(best.pace_s_per_km)} • ${fmtDate(best.start_date)}` : `No ${labels[k]} PB yet`}
-        </div>
-      </div>
-    );
-  };
-
-  // Table-with-disclosure per distance
-  const Top3Table = ({ k }) => {
-    const e = events[k];
-    const rows = e?.top || [];
-    const [openIdx, setOpenIdx] = React.useState(null);
-
-    const toggle = (i) => setOpenIdx((cur) => (cur === i ? null : i));
-
-    return (
-      <div style={{ ...cardStyle }}>
-        <h3 style={title}>{labels[k]}: Top 3</h3>
-        {!rows.length ? (
-          <div style={{ paddingTop: 4, color: "#6b7280" }}>No best efforts found.</div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-              <thead>
-                <tr>
-                  <th style={{ ...tableHeader, textAlign: "left", paddingBottom: 6 }}>Date</th>
-                  <th style={{ ...tableHeader, textAlign: "left", paddingBottom: 6 }}>Time</th>
-                  <th style={{ ...tableHeader, textAlign: "left", paddingBottom: 6 }}>Pace</th>
-                  <th style={{ ...tableHeader, textAlign: "left", paddingBottom: 6 }}>Activity</th>
-                  <th style={{ ...tableHeader, textAlign: "left", paddingBottom: 6 }}>Rank</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const isOpen = openIdx === i;
-                  const hasMap = !!r?.map?.polyline;
-                  return (
-                    <React.Fragment key={`${r.activity_id}-${i}`}>
-                      <tr
-                        onClick={() => toggle(i)}
-                        style={{
-                          borderTop: "1px solid #f1f5f9",
-                          cursor: "pointer",
-                          background: isOpen ? "#f8fafc" : "transparent",
-                        }}
-                        title="Click to view map"
-                      >
-                        <td style={{ padding: "8px 0" }}>
-                          <span style={{ marginRight: 6, display: "inline-block", width: 12 }}>
-                            {isOpen ? "▾" : "▸"}
-                          </span>
-                          {fmtDate(r.start_date)}
-                        </td>
-                        <td style={{ padding: "8px 0" }}>{formatHMS(r.elapsed_time_s)}</td>
-                        <td style={{ padding: "8px 0" }}>{formatPace(r.pace_s_per_km)}</td>
-                        <td style={{ padding: "8px 0" }}>{r.activity_name || "—"}</td>
-                        <td style={{ padding: "8px 0" }}>{r.pr_rank ? `#${r.pr_rank}` : "—"}</td>
-                      </tr>
-
-                      {isOpen && (
-                        <tr>
-                          <td colSpan={5} style={{ padding: "8px 0 0 0" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                              <MapPreview polyline={r?.map?.polyline || null} height={180} />
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 180 }}>
-                                <a
-                                  href={`https://www.strava.com/activities/${r.activity_id}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{
-                                    textDecoration: "none",
-                                    border: "1px solid #e5e7eb",
-                                    borderRadius: 6,
-                                    padding: "8px 10px",
-                                    fontSize: 13,
-                                    color: "#111827",
-                                    background: "#fff",
-                                  }}
-                                >
-                                  View on Strava ↗
-                                </a>
-                                <div style={{ fontSize: 12, color: "#6b7280" }}>
-                                  Tip: Click the row again to collapse
-                                </div>
-                                {!hasMap && (
-                                  <div style={{ fontSize: 12, color: "#ef4444" }}>
-                                    No polyline yet — run the PB sync again to hydrate maps.
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
-    <div style={{ height: "100%", overflow: "auto", padding: 16 }}>
-      {/* PB cards */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        {keys.map((k) => (
-          <PBCard key={k} k={k} />
-        ))}
+    <div style={styles.page}>
+      {/* PB hero cards */}
+      <div style={styles.heroGrid}>
+        {DISTANCES.map((d) => {
+          const best = pbs[d.key][0] || null;
+          return (
+            <div key={d.key} style={styles.heroCard}>
+              <div style={styles.heroLabel}>{d.label}</div>
+              <div style={styles.heroTime}>{best ? formatHMS(best.timeSec) : "—"}</div>
+              <div style={styles.heroPace}>
+                {best ? `${formatPace(best.pace)} · ${fmtDate(best.date)}` : "No efforts found"}
+              </div>
+              {best && (
+                <div style={styles.heroSource}>
+                  {best.source === "splits" ? "✓ exact splits" : "~ GPS estimate"}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Two-column layout for Top 3 tables */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        {keys.map((k) => (
-          <Top3Table key={`t-${k}`} k={k} />
+      {/* Top 5 tables per distance */}
+      <div style={styles.tablesGrid}>
+        {DISTANCES.map((d) => (
+          <TopTable key={d.key} label={d.label} rows={pbs[d.key].slice(0, 5)} />
         ))}
       </div>
     </div>
   );
 }
+
+// ─── TopTable ─────────────────────────────────────────────────────────────────
+function TopTable({ label, rows }) {
+  return (
+    <div style={styles.tableCard}>
+      <div style={styles.tableTitle}>{label} · Top 5</div>
+      {rows.length === 0 ? (
+        <div style={styles.tableEmpty}>No efforts found — need runs of at least this distance.</div>
+      ) : (
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              {["#", "Time", "Pace", "Run", "Date", ""].map((h) => (
+                <th key={h} style={styles.th}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.id}-${i}`} style={styles.tr(i === 0)}>
+                <td style={styles.td}>
+                  {i === 0 ? <span style={styles.goldBadge}>🥇</span> :
+                   i === 1 ? <span style={styles.silverBadge}>🥈</span> :
+                   i === 2 ? <span style={styles.bronzeBadge}>🥉</span> :
+                   <span style={styles.rankNum}>{i + 1}</span>}
+                </td>
+                <td style={{ ...styles.td, fontWeight: i === 0 ? 900 : 600, color: i === 0 ? "#fff" : "rgba(229,231,235,0.9)" }}>
+                  {formatHMS(r.timeSec)}
+                </td>
+                <td style={styles.td}>{formatPace(r.pace)}</td>
+                <td style={{ ...styles.td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r.name}
+                </td>
+                <td style={styles.td}>{fmtDate(r.date)}</td>
+                <td style={{ ...styles.td, color: "rgba(229,231,235,0.4)", fontSize: 10 }}>
+                  {r.source === "splits" ? "exact" : "~GPS"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ─── styles ───────────────────────────────────────────────────────────────────
+const styles = {
+  page: {
+    height: "100%",
+    overflowY: "auto",
+    padding: "20px 20px 40px",
+    background: "#05060a",
+    color: "#e5e7eb",
+  },
+
+  loadingCard: {
+    maxWidth: 420,
+    margin: "80px auto",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 18,
+    padding: 32,
+    textAlign: "center",
+  },
+  loadingTitle: { fontSize: 18, fontWeight: 800, marginBottom: 20, color: "#fff" },
+  loadingBar: {
+    height: 8,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  loadingFill: {
+    height: "100%",
+    borderRadius: 999,
+    background: "linear-gradient(90deg, #6366f1, #0ea5e9)",
+    transition: "width .3s ease",
+  },
+  loadingSub: { fontSize: 13, color: "rgba(229,231,235,0.6)" },
+
+  heroGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 14,
+    marginBottom: 24,
+  },
+  heroCard: {
+    background: "linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(14,165,233,0.08) 100%)",
+    border: "1px solid rgba(99,102,241,0.3)",
+    borderRadius: 18,
+    padding: "18px 16px",
+  },
+  heroLabel: {
+    fontSize: 11,
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.1em",
+    color: "rgba(229,231,235,0.6)",
+    marginBottom: 6,
+  },
+  heroTime: { fontSize: 32, fontWeight: 900, color: "#fff", lineHeight: 1, marginBottom: 6 },
+  heroPace: { fontSize: 13, color: "rgba(229,231,235,0.75)" },
+  heroSource: { marginTop: 6, fontSize: 11, color: "rgba(229,231,235,0.4)" },
+
+  tablesGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+    gap: 14,
+  },
+  tableCard: {
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 18,
+    padding: "16px 14px",
+  },
+  tableTitle: {
+    fontSize: 14,
+    fontWeight: 900,
+    color: "rgba(255,255,255,0.9)",
+    marginBottom: 12,
+  },
+  tableEmpty: { fontSize: 13, color: "rgba(229,231,235,0.5)", padding: "4px 0" },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: {
+    textAlign: "left",
+    fontSize: 11,
+    fontWeight: 700,
+    color: "rgba(229,231,235,0.5)",
+    padding: "0 8px 8px 0",
+    whiteSpace: "nowrap",
+  },
+  tr: (isFirst) => ({
+    borderTop: "1px solid rgba(255,255,255,0.06)",
+    background: isFirst ? "rgba(99,102,241,0.08)" : "transparent",
+  }),
+  td: {
+    padding: "9px 8px 9px 0",
+    color: "rgba(229,231,235,0.8)",
+    verticalAlign: "middle",
+  },
+  goldBadge:   { fontSize: 16 },
+  silverBadge: { fontSize: 16 },
+  bronzeBadge: { fontSize: 16 },
+  rankNum: { fontSize: 13, color: "rgba(229,231,235,0.5)", fontWeight: 700 },
+};

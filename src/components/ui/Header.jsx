@@ -5,8 +5,12 @@ export default function Header({
   year, yearOptions, setYear,
   type, typeOptions, setType,
   shoe, shoeOptions, setShoe,
-  lineColorName, setLineColorName, lineColors,
+  lineColorName, setLineColorName, heatGradients,
+  lineMode, setLineMode,
+  lineColor, setLineColor, lineColors,
   onFile,
+  themeMode = "dark",
+  toggleTheme,
   tabs = [
     { id: "map", label: "Map" },
     { id: "insights", label: "Insights" },
@@ -60,6 +64,30 @@ export default function Header({
             />
           ))}
         </nav>
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          style={{
+            padding: "7px 11px",
+            borderRadius: 999,
+            border: `1px solid ${themeMode === "light" ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)"}`,
+            background: themeMode === "light" ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
+            color: themeMode === "light" ? "#334155" : "rgba(229,231,235,0.9)",
+            fontSize: 15,
+            lineHeight: 1,
+            cursor: "pointer",
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "background .15s ease, border-color .15s ease",
+          }}
+        >
+          {themeMode === "dark" ? "☀️" : "🌙"}
+        </button>
       </div>
 
       {/* Filters row */}
@@ -86,13 +114,110 @@ export default function Header({
             options={shoeOptions}
             isMobile={isMobile}
           />
-          <SelectControl
-            label="Line colour"
-            value={lineColorName}
-            onChange={setLineColorName}
-            options={Object.keys(lineColors)}
-            isMobile={isMobile}
-          />
+          {/* Map mode controls — line mode toggle + heat/line colour picker */}
+          {tab === "map" && (
+            <div style={{ ...styles.control(isMobile), gap: 10, flexWrap: "wrap" }}>
+              {/* Line mode toggle */}
+              <button
+                onClick={() => setLineMode(v => !v)}
+                aria-pressed={lineMode}
+                style={{
+                  padding: "5px 11px",
+                  borderRadius: 999,
+                  border: lineMode
+                    ? "1px solid rgba(255,255,255,0.7)"
+                    : "1px solid rgba(255,255,255,0.2)",
+                  background: lineMode
+                    ? "rgba(255,255,255,0.15)"
+                    : "rgba(255,255,255,0.05)",
+                  color: lineMode ? "#fff" : "rgba(229,231,235,0.7)",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  transition: "all .15s ease",
+                  letterSpacing: 0.3,
+                }}
+              >
+                {lineMode ? "● Line" : "○ Line"}
+              </button>
+
+              <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.12)", flexShrink: 0 }} />
+
+              {lineMode ? (
+                /* Line colour picker */
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <label style={styles.controlLabel}>Colour</label>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {Object.entries(lineColors).map(([name, hex]) => {
+                      const isActive = lineColor === name;
+                      return (
+                        <button
+                          key={name}
+                          title={name}
+                          onClick={() => setLineColor(name)}
+                          aria-pressed={isActive}
+                          aria-label={`Line colour: ${name}`}
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: "50%",
+                            border: isActive
+                              ? "2px solid #fff"
+                              : "2px solid rgba(255,255,255,0.2)",
+                            background: hex,
+                            cursor: "pointer",
+                            padding: 0,
+                            flexShrink: 0,
+                            boxShadow: isActive
+                              ? `0 0 0 3px rgba(255,255,255,0.2), 0 0 8px ${hex}`
+                              : "none",
+                            transition: "box-shadow .15s ease, border-color .15s ease",
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Heat gradient swatches */
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <label style={styles.controlLabel}>Heat</label>
+                  <div style={{ display: "flex", gap: 5 }}>
+                    {Object.entries(heatGradients).map(([name, g]) => {
+                      const isActive = lineColorName === name;
+                      const swatchColor = `rgb(${g.r},${g.g},${g.b})`;
+                      return (
+                        <button
+                          key={name}
+                          title={name}
+                          onClick={() => setLineColorName(name)}
+                          aria-pressed={isActive}
+                          aria-label={`Heat colour: ${name}`}
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: "50%",
+                            border: isActive
+                              ? "2px solid #fff"
+                              : "2px solid rgba(255,255,255,0.2)",
+                            background: `radial-gradient(circle at 35% 35%, white, ${swatchColor})`,
+                            cursor: "pointer",
+                            padding: 0,
+                            flexShrink: 0,
+                            boxShadow: isActive
+                              ? `0 0 0 3px rgba(255,255,255,0.25), 0 0 10px ${swatchColor}`
+                              : "none",
+                            transition: "box-shadow .15s ease, border-color .15s ease",
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </header>
@@ -152,12 +277,12 @@ function TabButton({ label, isActive, onClick }) {
 const styles = {
   root: (isMobile) => ({
     width: "100%",
-    background: "rgba(5,6,10,0.9)",
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
-    padding: isMobile ? "8px 10px" : "14px 18px", // more breathing room desktop
+    background: "var(--header-bg, rgba(5,6,10,0.9))",
+    borderBottom: "1px solid var(--header-border, rgba(255,255,255,0.08))",
+    padding: isMobile ? "8px 10px" : "14px 18px",
     display: "flex",
     flexDirection: "column",
-    gap: isMobile ? 6 : 12, // bigger vertical spacing on desktop
+    gap: isMobile ? 6 : 12,
     position: "sticky",
     top: 0,
     zIndex: 20,
@@ -219,8 +344,8 @@ const styles = {
     display: "grid",
     gridTemplateColumns: isMobile
       ? "1fr 1fr"
-      : "repeat(4, minmax(140px, 1fr))",
-    gap: isMobile ? 8 : 14, // big horizontal/vertical spacing desktop
+      : "repeat(3, minmax(120px, 1fr)) minmax(220px, auto)",
+    gap: isMobile ? 8 : 14,
     alignItems: "center",
   }),
 

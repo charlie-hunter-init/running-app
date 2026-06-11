@@ -65,8 +65,8 @@ export default function MonthlyDistanceBars({ features, range = "all" }) {
           <Bar
             dataKey="km"
             name="Km"
-            radius={[10, 10, 6, 6]}
-            // no fixed colour here — recharts default is fine, but you can add later if you want
+            fill="#6366f1"
+            radius={[6, 6, 3, 3]}
           />
         </BarChart>
       </ResponsiveContainer>

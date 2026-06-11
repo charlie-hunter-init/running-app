@@ -41,19 +41,41 @@ export default function StravaHeatmapApp() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Line colours
-  const lineColors = React.useMemo(
+  // Theme
+  const [themeMode, setThemeMode] = useState(
+    () => localStorage.getItem("theme") || "dark"
+  );
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", themeMode);
+    localStorage.setItem("theme", themeMode);
+  }, [themeMode]);
+  const toggleTheme = () => setThemeMode(m => m === "dark" ? "light" : "dark");
+
+  // Heat gradient presets
+  const heatGradients = React.useMemo(
     () => ({
-      "Dark Blue": "#0b3d91",
-      Green: "#16a34a",
-      Red: "#ff4d4f",
-      Black: "#000000",
-      White: "#ffffff",
+      "Strava": { r: 255, g: 160, b: 20,  alpha: 0.35, label: "Strava" },
+      "Inferno": { r: 220, g: 40,  b: 120, alpha: 0.35, label: "Inferno" },
+      "Ocean":   { r: 20,  g: 180, b: 240, alpha: 0.35, label: "Ocean" },
+      "Forest":  { r: 60,  g: 220, b: 80,  alpha: 0.35, label: "Forest" },
     }),
     []
   );
-  const [lineColorName, setLineColorName] = useState("White");
-  const lineColor = lineColors[lineColorName];
+  const [lineColorName, setLineColorName] = useState("Strava");
+
+  // Line mode
+  const [lineMode, setLineMode] = useState(false);
+  const lineColors = React.useMemo(() => ({
+    "White":     "#ffffff",
+    "Orange":    "#ff6a00",
+    "Blue":      "#3b82f6",
+    "Green":     "#16a34a",
+    "Red":       "#ef4444",
+    "Yellow":    "#facc15",
+    "Pink":      "#f472b6",
+    "Dark Blue": "#0b3d91",
+  }), []);
+  const [lineColor, setLineColor] = useState("White");
 
   // Selection for map
   const [selectedRunId, setSelectedRunId] = useState(null);
@@ -340,9 +362,14 @@ export default function StravaHeatmapApp() {
         type={type} typeOptions={typeOptions} setType={setType}
         shoe={shoe} shoeOptions={shoeOptions} setShoe={setShoe}
         lineColorName={lineColorName} setLineColorName={setLineColorName}
+        heatGradients={heatGradients}
+        lineMode={lineMode} setLineMode={setLineMode}
+        lineColor={lineColor} setLineColor={setLineColor}
         lineColors={lineColors}
         onFile={handleFile}
         isMobile={isMobile}
+        themeMode={themeMode}
+        toggleTheme={toggleTheme}
         tabs={[
           { id: "map", label: "Map" },
           { id: "insights", label: "Insights" },
@@ -372,7 +399,9 @@ export default function StravaHeatmapApp() {
             <div style={{ minHeight: 0 }}>
               <MapView
                 filtered={mapRuns}
-                lineColor={lineColor}
+                heatGradient={heatGradients[lineColorName]}
+                lineMode={lineMode}
+                lineColor={lineColors[lineColor]}
                 selectedFeature={selectedFeature}
                 highlightColor="#ff6a00"
                 selectedKm={selectedKm}
@@ -425,6 +454,7 @@ export default function StravaHeatmapApp() {
                 <div style={{ flex: 1, minHeight: 0 }}>
                   <RecentRunsList
                     items={last1000}
+                    idToFeature={idToFeature}
                     selectedId={selectedRunId}
                     selectedKm={selectedKm}
                     onSelect={(id) => selectRun(id)}
@@ -444,6 +474,7 @@ export default function StravaHeatmapApp() {
             stats={stats}
             features={features}
             filtered={filtered}
+            allItems={allIndexItems}
             weeklyRange={weeklyRange}
             setWeeklyRange={setWeeklyRange}
           />

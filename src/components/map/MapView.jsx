@@ -1,9 +1,8 @@
 import React, { useMemo, useRef, useEffect } from "react";
-import { MapContainer, TileLayer, GeoJSON, LayersControl, Pane, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, GeoJSON, LayersControl, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.heat"; // plugin
-import HeatmapLayer from "./HeatmapLayer";
+import CanvasHeatLayer from "./CanvasHeatLayer";
 import FitToBounds from "./FitToBounds";
 import MapInvalidateOnReady from "./MapInvalidateOnReady";
 
@@ -62,82 +61,75 @@ function sliceLineByDistance(coords, fromM, toM) {
 }
 
 /**
- * Base runs layer implemented as an imperative Leaflet layer.
- * This avoids react-leaflet <GeoJSON> reconciliation issues during high-frequency updates.
+ * Creates custom panes once when the map is ready.
+ * Using createPane() imperatively avoids the react-leaflet <Pane>
+ * re-registration bug that occurs when the map tab remounts.
  */
-function BaseRunsLayer({ features, style, renderer, pane }) {
+function SetupPanes() {
+  const map = useMap();
+  useEffect(() => {
+    const panes = [
+      { name: "heat-lines",    z: 420 },
+      { name: "line-mode",     z: 420 },
+      { name: "selected-line", z: 500 },
+      { name: "selected-km",   z: 510 },
+    ];
+    for (const { name, z } of panes) {
+      if (!map.getPane(name)) {
+        const pane = map.createPane(name);
+        pane.style.zIndex = z;
+        // Panes that hold canvas layers must not intercept pointer events
+        pane.style.pointerEvents = "none";
+      }
+    }
+  }, [map]);
+  return null;
+}
+
+/**
+ * Plain line layer — same incremental pattern as CanvasHeatLayer but
+ * renders flat opaque lines for "line mode".
+ */
+function LineLayer({ features, style, pane, rendererRef }) {
   const map = useMap();
   const layerRef = useRef(null);
   const prevLenRef = useRef(0);
 
-  // Create layer once
   useEffect(() => {
+    if (!map) return;
+    if (!rendererRef.current) {
+      rendererRef.current = L.canvas({ pane });
+    }
     const layer = L.geoJSON(
       { type: "FeatureCollection", features: [] },
-      {
-        pane,
-        style,
-        interactive: false,
-        smoothFactor: 1.0,
-        renderer,
-      }
+      { pane, style, interactive: false, renderer: rendererRef.current, smoothFactor: 1.0 }
     );
-
     layer.addTo(map);
-    try {
-      layer.bringToFront();
-    } catch {}
-
     layerRef.current = layer;
     prevLenRef.current = 0;
+    return () => { try { layer.remove(); } catch {} layerRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, pane]);
 
-    return () => {
-      try {
-        layer.remove();
-      } catch {}
-      layerRef.current = null;
-    };
-  }, [map, pane, renderer, style]);
-
-  // Update style when it changes (eg line colour picker)
   useEffect(() => {
-    const layer = layerRef.current;
-    if (!layer) return;
-    try {
-      layer.setStyle(style);
-    } catch {}
+    layerRef.current?.setStyle(style);
   }, [style]);
 
-  // Incremental update of data
   useEffect(() => {
     const layer = layerRef.current;
     if (!layer) return;
-
     const newLen = features.length;
     const prevLen = prevLenRef.current;
-
     try {
       if (newLen > prevLen) {
-        // append-only delta
         const delta = features.slice(prevLen);
-        if (delta.length) {
-          layer.addData({ type: "FeatureCollection", features: delta });
-        }
+        if (delta.length) layer.addData({ type: "FeatureCollection", features: delta });
       } else {
-        // scrub backwards / filter changes: rebuild once
         layer.clearLayers();
-        if (newLen) {
-          layer.addData({ type: "FeatureCollection", features });
-        }
+        if (newLen) layer.addData({ type: "FeatureCollection", features });
       }
-
       prevLenRef.current = newLen;
-      try {
-        layer.bringToFront();
-      } catch {}
-    } catch {
-      // swallow Leaflet errors so the map doesn't blank
-    }
+    } catch {}
   }, [features]);
 
   return null;
@@ -145,23 +137,30 @@ function BaseRunsLayer({ features, style, renderer, pane }) {
 
 export default function MapView({
   filtered,
-  heatPoints,
-  radius,
-  blur,
-  gradient,
-  lineColor,
+  heatGradient,
+  lineMode = false,
+  lineColor = "#ffffff",
   selectedFeature,
   highlightColor = "#ff6a00",
   selectedKm = null,
   selectedKmColor = "#60a5fa",
   suppressFit = false,
 }) {
-  // One stable renderer instance
-  const canvasRenderer = useMemo(() => L.canvas(), []);
+  const heatRendererRef   = useRef(null);
+  const lineRendererRef   = useRef(null);
+  const selectRendererRef = useRef(null);
+  const kmRendererRef     = useRef(null);
+
+  const lineStyle = useMemo(
+    () => ({ color: lineColor, weight: 1.5, opacity: 0.7, smoothFactor: 1.0 }),
+    [lineColor]
+  );
 
   // Styles
-  const baseStyle = useMemo(() => ({ color: lineColor, weight: 1, opacity: 0.5 }), [lineColor]);
-  const hiStyle = useMemo(() => ({ color: highlightColor, weight: 4, opacity: 0.98 }), [highlightColor]);
+  const hiStyle = useMemo(
+    () => ({ color: highlightColor, weight: 4, opacity: 0.98 }),
+    [highlightColor]
+  );
   const kmStyle = useMemo(
     () => ({ color: selectedKmColor, weight: 7, opacity: 1, lineJoin: "round", lineCap: "round" }),
     [selectedKmColor]
@@ -182,8 +181,8 @@ export default function MapView({
       type === "LineString"
         ? g.coordinates
         : type === "MultiLineString"
-          ? g.coordinates.flat()
-          : null;
+        ? g.coordinates.flat()
+        : null;
     if (!coords) return null;
 
     const fromM = (selectedKm - 1) * 1000;
@@ -229,6 +228,9 @@ export default function MapView({
     >
       <MapInvalidateOnReady />
 
+      {/* Create panes before any layers are added */}
+      <SetupPanes />
+
       <LayersControl position="topright">
         <LayersControl.BaseLayer name="OSM Standard">
           <TileLayer
@@ -266,54 +268,84 @@ export default function MapView({
         </LayersControl.BaseLayer>
       </LayersControl>
 
-      {/* Heatmap */}
-      <Pane name="heat" style={{ zIndex: 300 }} />
-      <HeatmapLayer pane="heat" points={heatPoints} radius={radius} blur={blur} gradient={gradient} />
-
-      {/* Base lines */}
-      <Pane name="base-lines" style={{ zIndex: 1000 }} />
-      <BaseRunsLayer
-        features={filtered}
-        style={baseStyle}
-        renderer={canvasRenderer}
-        pane="base-lines"
-      />
-
-      {/* Selected overlay */}
-      <Pane name="selected-line" style={{ zIndex: 1100 }} />
-      {selectedGeojsonData && (
-        <GeoJSON
-          key={`selected-${selectedKeyId}`}
-          pane="selected-line"
-          data={selectedGeojsonData}
-          style={hiStyle}
-          renderer={canvasRenderer}
-          interactive={false}
-          smoothFactor={0}
-          whenCreated={(layer) => {
-            try { layer.bringToFront(); } catch {}
-          }}
+      {/* Routes layer — heat mode or plain line mode */}
+      {lineMode ? (
+        <LineLayer
+          features={filtered}
+          style={lineStyle}
+          pane="line-mode"
+          rendererRef={lineRendererRef}
+        />
+      ) : (
+        <CanvasHeatLayer
+          features={filtered}
+          gradient={heatGradient}
+          pane="heat-lines"
+          rendererRef={heatRendererRef}
         />
       )}
 
-      {/* Selected KM overlay */}
-      <Pane name="selected-km" style={{ zIndex: 1150 }} />
+      {/* Selected run — rendered into selected-line pane (z:500), always above heatmap */}
+      {selectedGeojsonData && (
+        <SelectedLayer
+          key={`selected-${selectedKeyId}`}
+          data={selectedGeojsonData}
+          style={hiStyle}
+          pane="selected-line"
+          rendererRef={selectRendererRef}
+        />
+      )}
+
+      {/* Selected km — rendered into selected-km pane (z:510) */}
       {selectedKmFeature && (
-        <GeoJSON
+        <SelectedLayer
           key={`selected-km-${selectedKeyId}-${selectedKm}`}
-          pane="selected-km"
           data={{ type: "FeatureCollection", features: [selectedKmFeature] }}
           style={kmStyle}
-          renderer={canvasRenderer}
-          interactive={false}
-          smoothFactor={0}
-          whenCreated={(layer) => {
-            try { layer.bringToFront(); } catch {}
-          }}
+          pane="selected-km"
+          rendererRef={kmRendererRef}
         />
       )}
 
       <FitToBounds features={fitFeatures} maxZoom={14} />
     </MapContainer>
   );
+}
+
+/**
+ * Renders a GeoJSON layer into a named pane using an L.canvas() renderer.
+ * Gets or creates its renderer lazily so the pane is guaranteed to exist first.
+ */
+function SelectedLayer({ data, style, pane, rendererRef }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+
+  useEffect(() => {
+    if (!map) return;
+
+    // Get or create the renderer for this pane
+    if (!rendererRef.current) {
+      rendererRef.current = L.canvas({ pane });
+    }
+
+    const layer = L.geoJSON(data, {
+      pane,
+      style,
+      interactive: false,
+      smoothFactor: 0,
+      renderer: rendererRef.current,
+    });
+
+    layer.addTo(map);
+    layerRef.current = layer;
+
+    return () => {
+      try { layer.remove(); } catch {}
+      layerRef.current = null;
+    };
+  // Re-run when data or style changes (key prop handles run switches)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, data, style, pane]);
+
+  return null;
 }

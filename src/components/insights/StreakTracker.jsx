@@ -1,18 +1,24 @@
 import React from "react";
 import { dayKeyFromDate, addDays, dateFromKey, TZ } from "../../lib/streak";
 
-export default function StreakTracker({ features, timeZone = TZ, type = "Run" }) {
+export default function StreakTracker({ features, allItems = [], timeZone = TZ, type = "Run" }) {
   const daySet = React.useMemo(() => {
     const s = new Set();
+    // Primary: index items — includes no-map runs
+    for (const item of allItems) {
+      if (type && item.type !== type) continue;
+      if (!item.start_date) continue;
+      s.add(dayKeyFromDate(new Date(item.start_date), timeZone));
+    }
+    // Fallback: geojson features for any days not in allItems
     for (const f of features || []) {
       const p = f.properties || {};
       if (type && p.type !== type) continue;
       if (!p.start_date) continue;
-      const d = new Date(p.start_date);
-      s.add(dayKeyFromDate(d, timeZone));
+      s.add(dayKeyFromDate(new Date(p.start_date), timeZone));
     }
     return s;
-  }, [features, timeZone, type]);
+  }, [allItems, features, timeZone, type]);
 
   const { current, currentStart, currentEnd } = React.useMemo(() => {
     const todayKey = dayKeyFromDate(new Date(), timeZone);
