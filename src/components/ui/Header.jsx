@@ -65,6 +65,9 @@ export default function Header({
           ))}
         </nav>
 
+        {/* Sync button */}
+        <SyncButton />
+
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
@@ -374,3 +377,59 @@ const styles = {
     outline: "none",
   }),
 };
+
+// ---- Sync Button (dev only) ----
+function SyncButton() {
+  const [syncing, setSyncing] = React.useState(false);
+  const [result, setResult] = React.useState(null); // "ok" | "error"
+
+  const handleSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/sync", { method: "POST" });
+      if (res.ok) {
+        setResult("ok");
+        // Reload data after a short delay
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        setResult("error");
+      }
+    } catch {
+      setResult("error");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleSync}
+      disabled={syncing}
+      title={syncing ? "Syncing..." : "Sync latest data from Strava"}
+      aria-label="Sync data"
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 999,
+        border: `1px solid ${result === "error" ? "rgba(239,68,68,0.5)" : result === "ok" ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.15)"}`,
+        background: result === "error" ? "rgba(239,68,68,0.1)" : result === "ok" ? "rgba(16,185,129,0.1)" : "rgba(255,255,255,0.08)",
+        color: result === "error" ? "#ef4444" : result === "ok" ? "#10b981" : "rgba(229,231,235,0.9)",
+        fontSize: 14,
+        cursor: syncing ? "wait" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        transition: "all .2s",
+        animation: syncing ? "spin 1s linear infinite" : "none",
+      }}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    </button>
+  );
+}

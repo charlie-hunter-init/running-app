@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Running icon</title>
+  <rect width="64" height="64" rx="14" fill="#12382f"/>
+  <circle cx="41" cy="15" r="7" fill="#ffffff"/>
+  <path
+    d="M34 23 L25 32 L34 39 L28 52"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M33 24 L45 34 L54 28"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M26 31 L15 28"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M6 42 L22 36 L17 46 Z" fill="#2dd4bf"/>
+</svg>

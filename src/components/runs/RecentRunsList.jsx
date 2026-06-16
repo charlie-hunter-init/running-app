@@ -67,7 +67,8 @@ function computeGeomSplits(feature) {
   for (let k = 1; k <= numSplits; k++) {
     const fromM = (k - 1) * 1000;
     const toM = Math.min(k * 1000, totalM);
-    splits.push({ km: k, distanceM: Math.round(toM - fromM) });
+    const distM = Math.round(toM - fromM);
+    splits.push({ km: k, distanceM: distM });
   }
 
   return splits;

@@ -35,31 +35,35 @@ function seconds(v) {
 /** Prefer `items` shape (runs_index.json), fallback to features.properties */
 function normaliseActivities(items, features) {
   if (items && items.length) {
-    return items.map((it) => ({
-      id: String(it.id),
-      name: it.name,
-      start_date: it.start_date,
-      distance_m: it.distance ?? it.distance_m ?? null,   // metres
-      moving_time: it.moving_time ?? null,                 // seconds
-      elapsed_time: it.elapsed_time ?? null,               // seconds
-      average_speed: it.average_speed ?? null,             // m/s
-      type: it.type ?? it.sport_type ?? null,
-    }));
+    return items
+      .filter((it) => (it.type ?? it.sport_type) === "Run")
+      .map((it) => ({
+        id: String(it.id),
+        name: it.name,
+        start_date: it.start_date,
+        distance_m: it.distance ?? it.distance_m ?? null,   // metres
+        moving_time: it.moving_time ?? null,                 // seconds
+        elapsed_time: it.elapsed_time ?? null,               // seconds
+        average_speed: it.average_speed ?? null,             // m/s
+        type: it.type ?? it.sport_type ?? null,
+      }));
   }
   // Fallback to GeoJSON properties (may be sparse)
-  return (features || []).map((f) => {
-    const p = f?.properties || {};
-    return {
-      id: String(p.id ?? ""),
-      name: p.name,
-      start_date: p.start_date,
-      distance_m: p.distance ?? p.distance_m ?? null,
-      moving_time: p.moving_time ?? null,
-      elapsed_time: p.elapsed_time ?? null,
-      average_speed: p.average_speed ?? null,
-      type: p.type ?? p.sport_type ?? null,
-    };
-  });
+  return (features || [])
+    .filter((f) => (f?.properties?.type ?? f?.properties?.sport_type) === "Run")
+    .map((f) => {
+      const p = f?.properties || {};
+      return {
+        id: String(p.id ?? ""),
+        name: p.name,
+        start_date: p.start_date,
+        distance_m: p.distance ?? p.distance_m ?? null,
+        moving_time: p.moving_time ?? null,
+        elapsed_time: p.elapsed_time ?? null,
+        average_speed: p.average_speed ?? null,
+        type: p.type ?? p.sport_type ?? null,
+      };
+    });
 }
 
 /** Compute pace in sec/km using average_speed (m/s) or moving_time / distance */

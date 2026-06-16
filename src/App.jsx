@@ -4,6 +4,7 @@ import { yearsFromFeatures, shoesFromFeatures, typesFromFeatures } from "./lib/g
 import Header from "./components/ui/Header";
 import MapView from "./components/map/MapView";
 import InsightsView from "./components/insights/InsightsView";
+import BreakDownView from "./components/breakdown/BreakDownView";
 import PersonalBestView from "./components/personalBest/PersonalBestView";
 import RecentRunsList from "./components/runs/RecentRunsList";
 import CalendarView from "./components/calendar/CalendarView";
@@ -373,6 +374,7 @@ export default function StravaHeatmapApp() {
         tabs={[
           { id: "map", label: "Map" },
           { id: "insights", label: "Insights" },
+          { id: "breakdown", label: "Break Down" },
           { id: "calendar", label: "Calendar" },
           { id: "wrapped", label: "Wrapped" },
           { id: "pb", label: "PBs" },
@@ -478,6 +480,8 @@ export default function StravaHeatmapApp() {
             weeklyRange={weeklyRange}
             setWeeklyRange={setWeeklyRange}
           />
+        ) : tab === "breakdown" ? (
+          <BreakDownView items={allIndexItems} idToFeature={idToFeature} />
         ) : tab === "calendar" ? (
           <CalendarView features={features} filtered={filtered} items={allIndexItems} />
         ) : tab === "wrapped" ? (
