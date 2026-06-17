@@ -2,6 +2,8 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { MapContainer, TileLayer, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import ShoeOverrideEditor from "./ShoeOverrideEditor.jsx";
+import { isWorkoutActivity, recalcByShoe, loadAllOverrides } from "../../lib/shoeOverrideApi.js";
 
 // ---- helpers ----
 function formatPace(secPerKm) {
@@ -264,42 +266,73 @@ function Stat({ label, value, icon }) {
 }
 
 // ---- Combined Chart: pace + HR lines with elevation profile underneath ----
-function CombinedChart({ splits, hoveredKm, setHoveredKm, showPace, setShowPace, showHr, setShowHr }) {
-  const W = 700, H_MAIN = 150, H_ELEV = 50, GAP = 4;
+function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, setShowPace, showHr, setShowHr }) {
+  const W = 1000, H_MAIN = 200, H_ELEV = 60, GAP = 4;
   const H = H_MAIN + GAP + H_ELEV;
   const PL = 40, PR = 40, PT = 10, PB = 20;
   const pW = W - PL - PR;
   const mainH = H_MAIN - PT - 6; // plot area for lines
   const elevTop = H_MAIN + GAP;
 
-  const hasHr = splits.some((sp) => sp.average_heartrate);
+  const hasHr = streams?.heartrate?.length > 0 || splits.some((sp) => sp.average_heartrate);
 
-  // Pace values
-  const paceVals = splits.map((sp) => sp.distance && sp.moving_time ? sp.moving_time / (sp.distance / 1000) : null);
+  // ---- Determine whether to use granular streams or per-km splits ----
+  const useStreams = !!(streams && streams.velocity_smooth && streams.distance && streams.velocity_smooth.length > 0);
+  const maxPoints = 300;
+
+  // Downsampled stream data
+  const { streamDistKm, streamPacePoints, streamHrPoints, streamElevPoints } = useMemo(() => {
+    if (!useStreams) return { streamDistKm: [], streamPacePoints: [], streamHrPoints: [], streamElevPoints: [] };
+    const total = streams.velocity_smooth.length;
+    const step = Math.max(1, Math.floor(total / maxPoints));
+    const distKm = [], paceP = [], hrP = [], elevP = [];
+    for (let i = 0; i < total; i += step) {
+      const vel = streams.velocity_smooth[i];
+      const dist = streams.distance[i] / 1000; // km
+      const pace = vel > 0.3 ? 1000 / vel : null; // sec/km, filter out near-zero (stopped)
+      distKm.push(dist);
+      paceP.push(pace);
+      hrP.push(streams.heartrate ? (streams.heartrate[i] || null) : null);
+      elevP.push(streams.altitude ? (streams.altitude[i] || 0) : 0);
+    }
+    return { streamDistKm: distKm, streamPacePoints: paceP, streamHrPoints: hrP, streamElevPoints: elevP };
+  }, [useStreams, streams]);
+
+  const maxDist = useStreams ? streamDistKm[streamDistKm.length - 1] || 1 : splits.length;
+
+  // Pace values — from streams or splits
+  const paceVals = useStreams ? streamPacePoints : splits.map((sp) => sp.distance && sp.moving_time ? sp.moving_time / (sp.distance / 1000) : null);
   const validPace = paceVals.filter((v) => v != null);
-  let pLo = validPace.length ? Math.min(...validPace) : 0;
-  let pHi = validPace.length ? Math.max(...validPace) : 1;
-  const pSpan = pHi - pLo || 1;
-  pLo -= pSpan * 0.08; pHi += pSpan * 0.08;
-  const pRange = pHi - pLo || 1;
+  // Fixed pace range: 2:30/km (150s) to 6:00/km (360s)
+  let pLo = 150; // 2:30 min/km
+  let pHi = 360; // 6:00 min/km
+  const pRange = pHi - pLo;
 
-  // HR values
-  const hrVals = splits.map((sp) => sp.average_heartrate || null);
+  // HR values — from streams or splits
+  const hrVals = useStreams ? streamHrPoints : splits.map((sp) => sp.average_heartrate || null);
   const validHr = hrVals.filter((v) => v != null);
-  let hLo = validHr.length ? Math.min(...validHr) : 0;
-  let hHi = validHr.length ? Math.max(...validHr) : 1;
-  const hSpan = hHi - hLo || 1;
-  hLo -= hSpan * 0.08; hHi += hSpan * 0.08;
-  const hRange = hHi - hLo || 1;
+  // Fixed HR range: 50-230 bpm
+  let hLo = 50;
+  let hHi = 230;
+  const hRange = hHi - hLo;
 
-  // Elevation values (cumulative for terrain profile)
-  const elevVals = splits.map((sp) => sp.elevation_difference ?? 0);
-  const cumElev = [0];
-  for (let i = 0; i < elevVals.length; i++) cumElev.push(cumElev[i] + elevVals[i]);
+  // Elevation values
+  let cumElev;
+  if (useStreams) {
+    // Use raw altitude stream (already absolute elevation)
+    cumElev = streamElevPoints;
+  } else {
+    const elevVals = splits.map((sp) => sp.elevation_difference ?? 0);
+    cumElev = [0];
+    for (let i = 0; i < elevVals.length; i++) cumElev.push(cumElev[i] + elevVals[i]);
+  }
   const eLo = Math.min(...cumElev), eHi = Math.max(...cumElev);
   const eRange = eHi - eLo || 1;
 
-  const xPos = (i) => PL + (i / (splits.length - 1 || 1)) * pW;
+  // X position: distance-based for streams, index-based for splits
+  const xPos = useStreams
+    ? (i) => PL + (streamDistKm[i] / maxDist) * pW
+    : (i) => PL + (i / (splits.length - 1 || 1)) * pW;
 
   // Y positions for main chart (pace is inverted — lower pace = higher on chart)
   const paceY = (v) => v == null ? PT + mainH / 2 : PT + ((v - pLo) / pRange) * mainH;
@@ -320,11 +353,17 @@ function CombinedChart({ splits, hoveredKm, setHoveredKm, showPace, setShowPace,
     return d;
   }
 
+  // Build point arrays for lines
   const pacePts = paceVals.map((v, i) => v != null ? { x: xPos(i), y: paceY(v) } : null).filter(Boolean);
   const hrPts = hrVals.map((v, i) => v != null ? { x: xPos(i), y: hrY(v) } : null).filter(Boolean);
-  const elevPts = cumElev.map((v, i) => ({ x: xPos(i * (splits.length - 1) / (cumElev.length - 1 || 1)), y: elevY(v) }));
-  // Fix elev x positions (cumElev has splits.length+1 entries, map to 0..splits.length)
-  const elevPtsFixed = cumElev.map((v, i) => ({ x: PL + (i / (cumElev.length - 1 || 1)) * pW, y: elevY(v) }));
+
+  // Elevation points
+  let elevPtsFixed;
+  if (useStreams) {
+    elevPtsFixed = cumElev.map((v, i) => ({ x: xPos(i), y: elevY(v) }));
+  } else {
+    elevPtsFixed = cumElev.map((v, i) => ({ x: PL + (i / (cumElev.length - 1 || 1)) * pW, y: elevY(v) }));
+  }
 
   const paceLine = showPace ? smooth(pacePts) : "";
   const hrLine = (showHr && hasHr) ? smooth(hrPts) : "";
@@ -346,42 +385,105 @@ function CombinedChart({ splits, hoveredKm, setHoveredKm, showPace, setShowPace,
   const handleMouseMove = (e) => {
     const svg = svgRef.current;
     if (!svg) return;
-    // Use SVG's own coordinate transform for accurate positioning
     const pt = svg.createSVGPoint();
     pt.x = e.clientX;
     pt.y = e.clientY;
     const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-    const frac = ((svgP.x - PL) / pW) * (splits.length - 1);
-    setHoveredKm(Math.max(0, Math.min(splits.length - 1, frac)));
+
+    if (useStreams) {
+      // Map pixel x to distance in km, then report as fractional km for HoverDot
+      const distFrac = (svgP.x - PL) / pW;
+      const distKm = distFrac * maxDist;
+      setHoveredKm(Math.max(0, Math.min(maxDist, distKm)));
+    } else {
+      const frac = ((svgP.x - PL) / pW) * (splits.length - 1);
+      setHoveredKm(Math.max(0, Math.min(splits.length - 1, frac)));
+    }
   };
 
-  const hoverX = hoveredKm != null ? xPos(hoveredKm) : null;
-  const hoverPace = hoveredKm != null && showPace ? interp(paceVals, hoveredKm) : null;
-  const hoverHr = hoveredKm != null && showHr && hasHr ? interp(hrVals, hoveredKm) : null;
+  // Find hover index in stream arrays by distance
+  const hoverStreamIdx = useMemo(() => {
+    if (!useStreams || hoveredKm == null) return null;
+    // hoveredKm is km distance when in stream mode
+    // Binary search for closest index
+    let lo = 0, hi = streamDistKm.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (streamDistKm[mid] < hoveredKm) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }, [useStreams, hoveredKm, streamDistKm]);
 
-  // Compute hover data for tooltip
-  const hoverKmInt = hoveredKm != null ? Math.floor(hoveredKm) : null;
-  const hoverSplit = hoverKmInt != null ? splits[hoverKmInt] : null;
+  const hoverX = hoveredKm != null
+    ? useStreams
+      ? PL + (hoveredKm / maxDist) * pW
+      : xPos(hoveredKm)
+    : null;
+
+  // Interpolate values at hover position
+  let hoverPace = null, hoverHr = null;
+  if (hoveredKm != null) {
+    if (useStreams && hoverStreamIdx != null) {
+      hoverPace = showPace ? paceVals[hoverStreamIdx] : null;
+      hoverHr = (showHr && hasHr) ? hrVals[hoverStreamIdx] : null;
+    } else if (!useStreams) {
+      hoverPace = showPace ? interp(paceVals, hoveredKm) : null;
+      hoverHr = (showHr && hasHr) ? interp(hrVals, hoveredKm) : null;
+    }
+  }
+
   const hoverDist = hoveredKm != null ? hoveredKm.toFixed(1) : null;
 
   // Cumulative time up to the hovered position
   const hoverElapsedTime = useMemo(() => {
-    if (hoveredKm == null || !splits.length) return null;
+    if (hoveredKm == null) return null;
+    if (useStreams && streams.time) {
+      // Use actual time stream - find index closest to hoveredKm distance
+      if (hoverStreamIdx != null && hoverStreamIdx < streams.time.length) {
+        // hoverStreamIdx is in downsampled space, map back to original
+        const total = streams.velocity_smooth.length;
+        const step = Math.max(1, Math.floor(total / maxPoints));
+        const origIdx = Math.min(hoverStreamIdx * step, total - 1);
+        return streams.time[origIdx];
+      }
+      return null;
+    }
+    if (!splits.length) return null;
     const fullKms = Math.floor(hoveredKm);
     let total = 0;
     for (let i = 0; i < fullKms && i < splits.length; i++) {
       total += splits[i].moving_time || 0;
     }
-    // Add fractional part of current km
     const frac = hoveredKm - fullKms;
     if (fullKms < splits.length) {
       total += (splits[fullKms].moving_time || 0) * frac;
     }
     return Math.round(total);
-  }, [hoveredKm, splits]);
+  }, [hoveredKm, splits, useStreams, streams, hoverStreamIdx]);
 
   // Tooltip X position as percentage
-  const tooltipPct = hoveredKm != null ? ((hoveredKm) / (splits.length - 1 || 1)) * 100 : 0;
+  const tooltipPct = hoveredKm != null
+    ? useStreams ? (hoveredKm / maxDist) * 100 : (hoveredKm / (splits.length - 1 || 1)) * 100
+    : 0;
+
+  // X-axis km markers
+  const xAxisLabels = useMemo(() => {
+    if (useStreams) {
+      const totalKm = Math.ceil(maxDist);
+      const step = totalKm > 20 ? 5 : totalKm > 12 ? 2 : 1;
+      const labels = [];
+      for (let k = step; k <= totalKm; k += step) {
+        labels.push({ km: k, x: PL + (k / maxDist) * pW });
+      }
+      return labels;
+    }
+    return splits.map((_, i) => {
+      const step = splits.length > 20 ? 5 : splits.length > 12 ? 2 : 1;
+      if (i % step !== 0 && i !== splits.length - 1) return null;
+      return { km: i + 1, x: xPos(i) };
+    }).filter(Boolean);
+  }, [useStreams, maxDist, splits, pW, PL]);
 
   return (
     <div style={{ ...s.chartCard, position: "relative" }}>
@@ -442,7 +544,7 @@ function CombinedChart({ splits, hoveredKm, setHoveredKm, showPace, setShowPace,
         </div>
       )}
 
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 200, display: "block", cursor: "crosshair" }}
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 280, display: "block", cursor: "crosshair" }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setHoveredKm(null)}>
 
         {/* grid */}
@@ -460,16 +562,14 @@ function CombinedChart({ splits, hoveredKm, setHoveredKm, showPace, setShowPace,
         {/* hr line */}
         {hrLine && <path d={hrLine} fill="none" stroke="#ef4444" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" opacity={showHr ? 1 : 0} />}
 
-        {/* small dots on km points */}
-        {showPace && pacePts.map((p, i) => <circle key={`p${i}`} cx={p.x} cy={p.y} r={1.5} fill="#3b82f6" opacity={0.5} />)}
-        {showHr && hasHr && hrPts.map((p, i) => <circle key={`h${i}`} cx={p.x} cy={p.y} r={1.5} fill="#ef4444" opacity={0.5} />)}
+        {/* small dots on km points — only for splits mode */}
+        {!useStreams && showPace && pacePts.map((p, i) => <circle key={`p${i}`} cx={p.x} cy={p.y} r={1.5} fill="#3b82f6" opacity={0.5} />)}
+        {!useStreams && showHr && hasHr && hrPts.map((p, i) => <circle key={`h${i}`} cx={p.x} cy={p.y} r={1.5} fill="#ef4444" opacity={0.5} />)}
 
         {/* x-axis labels */}
-        {splits.map((_, i) => {
-          const step = splits.length > 20 ? 5 : splits.length > 12 ? 2 : 1;
-          if (i % step !== 0 && i !== splits.length - 1) return null;
-          return <text key={i} x={xPos(i)} y={H - 2} textAnchor="middle" fontSize={8} fill="rgba(255,255,255,0.4)">{i + 1}km</text>;
-        })}
+        {xAxisLabels.map((lbl) => (
+          <text key={lbl.km} x={lbl.x} y={H - 2} textAnchor="middle" fontSize={8} fill="rgba(255,255,255,0.4)">{lbl.km}km</text>
+        ))}
 
         {/* pace y-axis (left) */}
         {showPace && [0, 0.5, 1].map((f) => (
@@ -537,7 +637,7 @@ const MAP_TILES = {
 };
 
 // ---- main ----
-export default function BreakDownView({ items, idToFeature }) {
+export default function BreakDownView({ items, idToFeature, stats, setStats }) {
   const [selectedId, setSelectedId] = useState(null);
   const [splitsData, setSplitsData] = useState(null);
   const [splitsLoading, setSplitsLoading] = useState(false);
@@ -559,6 +659,18 @@ export default function BreakDownView({ items, idToFeature }) {
     (items || []).filter((it) => it.has_map && it.distance > 500 && it.type === "Run").slice(0, 2000),
   [items]);
 
+  // Derive unique shoe list from all items for the override dropdown
+  const shoeList = useMemo(() => {
+    const seen = new Map();
+    for (const it of (items || [])) {
+      const name = it.shoe_name || it.gear_name;
+      if (name && !seen.has(name)) {
+        seen.set(name, { name, gearId: it.gear_id || null });
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
+
   const filteredRunList = useMemo(() => {
     let list = runList;
     // Apply category filter
@@ -566,6 +678,9 @@ export default function BreakDownView({ items, idToFeature }) {
       list = list.filter((it) => it.distance >= 18000);
     } else if (filter === "workout") {
       list = list.filter((it) => {
+        // Include WO-named activities or fast pace activities
+        const isWO = it.name && (it.name.includes("WO") || it.name.includes("Workout") || it.name.includes("Session"));
+        if (isWO) return true;
         const secPerKm = it.average_speed ? 1000 / it.average_speed : null;
         return secPerKm != null && secPerKm < 250; // faster than 4:10/km
       });
@@ -603,6 +718,17 @@ export default function BreakDownView({ items, idToFeature }) {
     const key = String(id);
     setSelectedId(key); setHoveredKm(null); setClickedKm(null); loadSplits(key);
   }, [loadSplits]);
+
+  // After an override is saved/deleted, recalculate byShoe and update stats
+  const handleOverrideChange = useCallback(async () => {
+    try {
+      const allOverrides = await loadAllOverrides();
+      const newByShoe = recalcByShoe(items || [], allOverrides);
+      setStats((prev) => prev ? { ...prev, byShoe: newByShoe } : prev);
+    } catch (err) {
+      console.error("Failed to recalculate shoe stats:", err);
+    }
+  }, [items, setStats]);
 
   const splits = splitsData?.splits || [];
   const [clickedKm, setClickedKm] = useState(null);
@@ -695,6 +821,19 @@ export default function BreakDownView({ items, idToFeature }) {
               </div>
             </div>
 
+            {/* shoe override editor for workout activities */}
+            {isWorkoutActivity(selectedItem.name) && (
+              <ShoeOverrideEditor
+                key={selectedId}
+                activityId={selectedId}
+                activityName={selectedItem.name}
+                totalDistanceM={selectedItem.distance}
+                stravaShoe={selectedItem.shoe_name ? { name: selectedItem.shoe_name, gearId: selectedItem.gear_id || null } : null}
+                shoeList={shoeList}
+                onOverrideChange={handleOverrideChange}
+              />
+            )}
+
             {/* map + splits side by side */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               {/* map */}
@@ -769,7 +908,7 @@ export default function BreakDownView({ items, idToFeature }) {
             {/* combined chart */}
             {splitsLoading && <div style={s.loadingText}>Loading...</div>}
             {!splitsLoading && splits.length > 0 && (
-              <CombinedChart splits={splits} hoveredKm={hoveredKm} setHoveredKm={setHoveredKmThrottled}
+              <CombinedChart splits={splits} streams={splitsData?.streams} hoveredKm={hoveredKm} setHoveredKm={setHoveredKmThrottled}
                 showPace={showPace} setShowPace={setShowPace}
                 showHr={showHr} setShowHr={setShowHr} />
             )}

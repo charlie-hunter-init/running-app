@@ -481,7 +481,7 @@ export default function StravaHeatmapApp() {
             setWeeklyRange={setWeeklyRange}
           />
         ) : tab === "breakdown" ? (
-          <BreakDownView items={allIndexItems} idToFeature={idToFeature} />
+          <BreakDownView items={allIndexItems} idToFeature={idToFeature} stats={stats} setStats={setStats} />
         ) : tab === "calendar" ? (
           <CalendarView features={features} filtered={filtered} items={allIndexItems} />
         ) : tab === "wrapped" ? (

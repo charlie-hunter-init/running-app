@@ -7,7 +7,7 @@ const WORKOUT_PACE_SPK = 250;     // < 4:10 per km
 const WALK_PACE_SPK    = 540;     // >= 9:00 per km
 
 // Slice order for consistent pies/legend
-const KINDS = ["walk", "workout", "long", "jog"];
+const KINDS = ["walk", "jog", "workout", "long"];
 
 const COLORS = {
   walk:    { fill: "#93c5fd", edge: "#60a5fa", label: "Walk" },      // blue
@@ -114,6 +114,15 @@ export default function CalendarMileageFill({
     [items, features]
   );
 
+  // Load shoe overrides for WO activity splits
+  const [shoeOverrides, setShoeOverrides] = React.useState({});
+  React.useEffect(() => {
+    fetch("/api/shoe-override?action=get_all")
+      .then((r) => r.ok ? r.json() : {})
+      .then((data) => setShoeOverrides(data.overrides || {}))
+      .catch(() => {});
+  }, []);
+
   // Aggregate per-day using same rules as RecentRunsList
   const { byDay, latestDate } = React.useMemo(() => {
     const m = new Map(); // key -> { totalKm, walk, workout, long, jog }
@@ -133,10 +142,25 @@ export default function CalendarMileageFill({
       const moving = seconds(a.moving_time ?? a.elapsed_time ?? null);
 
       const secPerKm = paceSecPerKm(a);
+      const isWO = a.name && (a.name.includes("WO") || a.name.includes("Workout") || a.name.includes("Session"));
 
-      // Classify: walk (pace ≥ 9:00) > workout (< 4:00) > long (≥ 70 min) > jog
+      // If WO activity has a shoe override with 2 segments, split into jog + workout
+      const override = shoeOverrides[a.id];
+      if (isWO && override && Array.isArray(override.segments) && override.segments.length >= 2) {
+        const jogKm = override.segments[0].distance_m / 1000;   // segment 1 = jogging shoe
+        const workoutKm = override.segments[1].distance_m / 1000; // segment 2 = workout shoe
+        const cur = m.get(key) || { totalKm: 0, walk: 0, workout: 0, long: 0, jog: 0 };
+        cur.totalKm += km;
+        cur.jog += jogKm;
+        cur.workout += workoutKm;
+        m.set(key, cur);
+        continue;
+      }
+
+      // Classify: walk (pace ≥ 9:00) > WO name (workout) > workout pace (< 4:00) > long (≥ 70 min) > jog
       let kind = "jog";
       if (secPerKm != null && secPerKm >= WALK_PACE_SPK)        kind = "walk";
+      else if (isWO)                                             kind = "workout";
       else if (secPerKm != null && secPerKm < WORKOUT_PACE_SPK) kind = "workout";
       else if ((moving ?? 0) >= LONG_RUN_SECONDS)               kind = "long";
 
@@ -147,7 +171,7 @@ export default function CalendarMileageFill({
     }
 
     return { byDay: m, latestDate: latest || new Date() };
-  }, [activities, timeZone]);
+  }, [activities, timeZone, shoeOverrides]);
 
   // Month model
   const initialAnchor = React.useMemo(() => {

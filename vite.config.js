@@ -63,7 +63,70 @@ function syncPlugin() {
   };
 }
 
+function shoeOverridePlugin() {
+  return {
+    name: 'shoe-override-api',
+    configureServer(server) {
+      server.middlewares.use('/api/shoe-override', async (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+
+        try {
+          const { LambdaClient, InvokeCommand } = await import('@aws-sdk/client-lambda');
+          const lambda = new LambdaClient({ region: 'ap-southeast-2' });
+
+          // Build the Lambda event from the incoming request
+          let body = '';
+          if (req.method === 'POST') {
+            body = await new Promise((resolve, reject) => {
+              let data = '';
+              req.on('data', chunk => data += chunk);
+              req.on('end', () => resolve(data));
+              req.on('error', reject);
+            });
+          }
+
+          // Parse query string for GET requests
+          const url = new URL(req.url, 'http://localhost');
+          const queryParams = Object.fromEntries(url.searchParams);
+
+          const event = {
+            httpMethod: req.method,
+            queryStringParameters: Object.keys(queryParams).length > 0 ? queryParams : null,
+            body: body || null,
+            headers: { 'Content-Type': 'application/json' },
+          };
+
+          const invokeResp = await lambda.send(new InvokeCommand({
+            FunctionName: 'arn:aws:lambda:ap-southeast-2:598945436007:function:shoe-update',
+            InvocationType: 'RequestResponse',
+            Payload: Buffer.from(JSON.stringify(event)),
+          }));
+
+          const payload = invokeResp.Payload
+            ? JSON.parse(Buffer.from(invokeResp.Payload).toString())
+            : null;
+
+          if (invokeResp.FunctionError) {
+            console.error('[shoe-override] Lambda error:', payload);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Lambda failed', detail: payload }));
+            return;
+          }
+
+          // The Lambda returns { statusCode, headers, body }
+          res.statusCode = payload.statusCode || 200;
+          res.end(payload.body || JSON.stringify(payload));
+        } catch (err) {
+          console.error('[shoe-override] Error:', err.message);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), syncPlugin()],
+  plugins: [react(), syncPlugin(), shoeOverridePlugin()],
 })
