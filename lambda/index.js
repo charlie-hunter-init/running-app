@@ -78,6 +78,13 @@ const INCREMENTAL_LOOKBACK_SECONDS = Number(
   process.env.INCREMENTAL_LOOKBACK_SECONDS || 172800
 );
 
+// Weather enrichment env vars
+const WEATHER_ENABLED =
+  String(process.env.WEATHER_ENABLED || "true").toLowerCase() === "true";
+const WEATHER_INTERVAL_SECONDS = Number(process.env.WEATHER_INTERVAL_SECONDS || 600);
+const WEATHER_COORD_DECIMALS = Number(process.env.WEATHER_COORD_DECIMALS || 2);
+const WEATHER_CACHE_KEY = process.env.WEATHER_CACHE_KEY || "weather_cache.json";
+
 const s3 = new S3Client({ region: REGION });
 const ssm = new SSMClient({ region: REGION });
 
@@ -622,6 +629,168 @@ async function saveSplitsState(state) {
   await putJson(SPLITS_STATE_KEY, state, "application/json");
 }
 
+// ---- Weather enrichment helpers ----
+
+function roundCoord(value, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.round(value * factor) / factor;
+}
+
+function weatherCacheKey(lat, lng, date) {
+  return `${lat},${lng}:${date}`;
+}
+
+async function loadWeatherCache() {
+  return await loadJsonFromS3OrDefault(WEATHER_CACHE_KEY, {});
+}
+
+async function saveWeatherCache(cache) {
+  if (!DRY_RUN) {
+    await putJson(WEATHER_CACHE_KEY, cache, "application/json");
+  }
+}
+
+/**
+ * Fetch hourly weather from Open-Meteo Historical Weather API.
+ * Returns { temperature_2m: [...], apparent_temperature: [...], time: [...] } or null on failure.
+ */
+async function fetchOpenMeteoWeather(lat, lng, date) {
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${date}&end_date=${date}&hourly=temperature_2m,apparent_temperature&timezone=UTC`;
+  try {
+    const resp = await axios.get(url, { timeout: 10000 });
+    const hourly = resp.data?.hourly;
+    if (!hourly || !hourly.time || !hourly.temperature_2m) return null;
+    return hourly;
+  } catch (err) {
+    console.log(`  [weather] Open-Meteo fetch failed for ${lat},${lng} on ${date}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Build sample points every WEATHER_INTERVAL_SECONDS from streams.
+ * Returns array of { elapsed_seconds, timestamp, lat, lng } or [] if data missing.
+ */
+function buildWeatherSamplePoints(activity, streams) {
+  const timeArr = streams?.time;
+  const latlngArr = streams?.latlng;
+
+  if (!timeArr || !latlngArr || !timeArr.length || !latlngArr.length) return [];
+  if (!activity.start_date) return [];
+
+  const startMs = Date.parse(activity.start_date);
+  if (!Number.isFinite(startMs)) return [];
+
+  const totalElapsed = timeArr[timeArr.length - 1];
+  const samples = [];
+
+  for (let targetSec = 0; targetSec <= totalElapsed; targetSec += WEATHER_INTERVAL_SECONDS) {
+    // Find closest stream index to target elapsed time
+    let closestIdx = 0;
+    let closestDiff = Math.abs(timeArr[0] - targetSec);
+    for (let i = 1; i < timeArr.length; i++) {
+      const diff = Math.abs(timeArr[i] - targetSec);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIdx = i;
+      }
+      if (timeArr[i] > targetSec) break; // time is monotonic, no need to continue
+    }
+
+    const latlng = latlngArr[closestIdx];
+    if (!latlng || latlng.length < 2) continue;
+
+    samples.push({
+      elapsed_seconds: targetSec,
+      timestamp: new Date(startMs + targetSec * 1000).toISOString(),
+      lat: latlng[0],
+      lng: latlng[1],
+    });
+  }
+
+  return samples;
+}
+
+/**
+ * Enrich sample points with weather data from Open-Meteo, using a cache.
+ * Mutates weatherCache in-place. Returns enriched samples array.
+ */
+async function enrichSamplesWithWeather(samples, weatherCache) {
+  if (!samples.length) return [];
+
+  // Group samples by rounded coord + date for efficient fetching
+  const fetchNeeded = new Map(); // cacheKey -> { lat, lng, date }
+
+  for (const sample of samples) {
+    const lat = roundCoord(sample.lat, WEATHER_COORD_DECIMALS);
+    const lng = roundCoord(sample.lng, WEATHER_COORD_DECIMALS);
+    const date = sample.timestamp.slice(0, 10); // YYYY-MM-DD
+    const key = weatherCacheKey(lat, lng, date);
+
+    if (!weatherCache[key] && !fetchNeeded.has(key)) {
+      fetchNeeded.set(key, { lat, lng, date });
+    }
+  }
+
+  // Fetch missing weather data
+  for (const [key, { lat, lng, date }] of fetchNeeded) {
+    const hourly = await fetchOpenMeteoWeather(lat, lng, date);
+    if (hourly) {
+      weatherCache[key] = hourly;
+    } else {
+      // Store empty marker so we don't retry this invocation
+      weatherCache[key] = { time: [], temperature_2m: [], apparent_temperature: [] };
+    }
+    // Small delay between Open-Meteo calls
+    await sleep(100);
+  }
+
+  // Attach weather to each sample
+  const enriched = [];
+  for (const sample of samples) {
+    const lat = roundCoord(sample.lat, WEATHER_COORD_DECIMALS);
+    const lng = roundCoord(sample.lng, WEATHER_COORD_DECIMALS);
+    const date = sample.timestamp.slice(0, 10);
+    const key = weatherCacheKey(lat, lng, date);
+
+    const hourly = weatherCache[key];
+    let temperature_2m = null;
+    let apparent_temperature = null;
+
+    if (hourly && hourly.time && hourly.time.length > 0) {
+      // Find nearest hour to sample timestamp
+      const sampleHour = new Date(sample.timestamp).getUTCHours();
+      // hourly.time entries are ISO strings like "2026-06-23T06:00"
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      for (let i = 0; i < hourly.time.length; i++) {
+        const hourStr = hourly.time[i];
+        const hour = parseInt(hourStr.slice(11, 13), 10);
+        const diff = Math.abs(hour - sampleHour);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIdx = i;
+        }
+      }
+      temperature_2m = hourly.temperature_2m?.[bestIdx] ?? null;
+      apparent_temperature = hourly.apparent_temperature?.[bestIdx] ?? null;
+    }
+
+    enriched.push({
+      elapsed_seconds: sample.elapsed_seconds,
+      timestamp: sample.timestamp,
+      lat: sample.lat,
+      lng: sample.lng,
+      temperature_2m,
+      apparent_temperature,
+    });
+  }
+
+  return enriched;
+}
+
+// ---- End weather helpers ----
+
 async function fetchAndStoreSplits(http, context, runIds, splitsState) {
   const recentIds = new Set(splitsState.recent_ids || splitsState.fetched_ids || []);
   const idsToFetch = runIds.filter((id) => !recentIds.has(String(id)));
@@ -632,6 +801,14 @@ async function fetchAndStoreSplits(http, context, runIds, splitsState) {
   }
 
   console.log(`Fetching splits for ${idsToFetch.length} runs...`);
+
+  // Load weather cache once for the entire batch
+  let weatherCache = {};
+  let weatherCacheDirty = false;
+  if (WEATHER_ENABLED) {
+    weatherCache = await loadWeatherCache();
+    console.log(`  [weather] Cache loaded: ${Object.keys(weatherCache).length} entries`);
+  }
 
   let fetched = 0;
   let failed = 0;
@@ -658,7 +835,7 @@ async function fetchAndStoreSplits(http, context, runIds, splitsState) {
       let streams = null;
       try {
         const streamsResp = await getWithRetry(http, `/activities/${id}/streams`, {
-          params: { keys: 'velocity_smooth,distance,time,heartrate,altitude,cadence', key_by_type: 'true' },
+          params: { keys: 'latlng,velocity_smooth,distance,time,heartrate,altitude,cadence', key_by_type: 'true' },
         });
         const raw = streamsResp.data;
         const streamData = {};
@@ -744,8 +921,24 @@ async function fetchAndStoreSplits(http, context, runIds, splitsState) {
             average_cadence: s.average_cadence ?? null,
             pace_zone: s.pace_zone ?? null,
           })),
-          streams: streams, // per-second data: { velocity_smooth, distance, time, heartrate, altitude, cadence }
+          streams: streams, // per-second data: { latlng, velocity_smooth, distance, time, heartrate, altitude, cadence }
+          weather_samples: [], // populated below if weather enabled
         };
+
+        // Weather enrichment
+        if (WEATHER_ENABLED) {
+          try {
+            const samples = buildWeatherSamplePoints(activity, streams);
+            if (samples.length > 0) {
+              splitsData.weather_samples = await enrichSamplesWithWeather(samples, weatherCache);
+              weatherCacheDirty = true;
+              console.log(`  [weather] ${splitsData.weather_samples.length} samples for ${id}`);
+            }
+          } catch (err) {
+            console.log(`  [weather] Failed for ${id}: ${err.message}`);
+            // Non-fatal: weather_samples stays as []
+          }
+        }
 
         if (!DRY_RUN) {
           await putJson(`${SPLITS_PREFIX}${id}.json`, splitsData, "application/json");
@@ -772,6 +965,16 @@ async function fetchAndStoreSplits(http, context, runIds, splitsState) {
         console.log("Rate limited on splits fetch. Stopping and will continue next run.");
         break;
       }
+    }
+  }
+
+  // Save weather cache if it was updated
+  if (WEATHER_ENABLED && weatherCacheDirty) {
+    try {
+      await saveWeatherCache(weatherCache);
+      console.log(`  [weather] Cache saved: ${Object.keys(weatherCache).length} entries`);
+    } catch (err) {
+      console.log(`  [weather] Failed to save cache: ${err.message}`);
     }
   }
 
@@ -1118,7 +1321,7 @@ export const handler = async (event, context) => {
 
   const allRunIds = mergedIndexItems
     .filter((item) => {
-      if (!item.has_map || !item.distance || item.distance <= 500) return false;
+      if (!item.distance || item.distance <= 500) return false;
       if (item.type !== "Run") return false; // only fetch splits for runs
       const startMs = Date.parse(item.start_date || 0);
       return startMs > splitsAfterMs;

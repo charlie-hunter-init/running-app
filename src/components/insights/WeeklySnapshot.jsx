@@ -16,7 +16,7 @@ function fmtTime(sec) {
 }
 
 function fmtDelta(val, unit = "km") {
-  if (val === 0) return { text: "same as last week", color: "rgba(229,231,235,0.5)", arrow: "→" };
+  if (val === 0) return { text: "same as last week", color: "var(--text3)", arrow: "→" };
   const abs = Math.abs(val).toFixed(unit === "km" ? 1 : 0);
   const up = val > 0;
   return {
@@ -190,7 +190,7 @@ export default function WeeklySnapshot({ allItems = [] }) {
                 <div style={{
                   fontSize: 10,
                   fontWeight: isToday ? 900 : 600,
-                  color: d.isFuture ? "rgba(229,231,235,0.25)" : isToday ? "#a78bfa" : "rgba(229,231,235,0.55)",
+                  color: d.isFuture ? "rgba(229,231,235,0.25)" : isToday ? "#a78bfa" : "var(--text3)",
                 }}>
                   {d.label}
                 </div>
@@ -198,7 +198,7 @@ export default function WeeklySnapshot({ allItems = [] }) {
             );
           })}
         </div>
-        <div style={{ marginTop: 8, fontSize: 11, color: "rgba(229,231,235,0.45)" }}>
+        <div style={{ marginTop: 8, fontSize: 11, color: "var(--text3)" }}>
           Mon → Sun · NZ time
         </div>
       </div>
@@ -211,21 +211,21 @@ function StatBlock({ label, value, delta, sub, accent }) {
   return (
     <div style={{ ...card, borderTopColor: accent }}>
       <div style={cardLabel}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 950, color: "#fff", lineHeight: 1.1, marginTop: 6 }}>
+      <div style={{ fontSize: 26, fontWeight: 950, color: "var(--text)", lineHeight: 1.1, marginTop: 6 }}>
         {value}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 6 }}>
         <span style={{ fontSize: 16, lineHeight: 1, color: delta.color }}>{delta.arrow}</span>
         <span style={{ fontSize: 12, color: delta.color, fontWeight: 700 }}>{delta.text}</span>
       </div>
-      <div style={{ marginTop: 4, fontSize: 11, color: "rgba(229,231,235,0.40)" }}>{sub}</div>
+      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text3)" }}>{sub}</div>
     </div>
   );
 }
 
 const card = {
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(255,255,255,0.09)",
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
   borderTop: "2px solid rgba(96,165,250,0.6)",
   borderRadius: 14,
   padding: "12px 14px",
@@ -236,5 +236,5 @@ const cardLabel = {
   fontWeight: 800,
   textTransform: "uppercase",
   letterSpacing: "0.07em",
-  color: "rgba(229,231,235,0.55)",
+  color: "var(--text3)",
 };

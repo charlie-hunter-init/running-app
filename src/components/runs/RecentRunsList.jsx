@@ -129,10 +129,9 @@ const styles = {
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
-    borderLeft: "1px solid rgba(255,255,255,0.08)",
-    background:
-      "linear-gradient(180deg, rgba(9,11,20,0.98) 0%, rgba(10,14,28,0.98) 100%)",
-    color: "#e5e7eb",
+    borderLeft: "1px solid var(--border)",
+    background: "var(--sidebar-bg)",
+    color: "var(--text2)",
   },
 
   stickyHeader: {
@@ -140,10 +139,9 @@ const styles = {
     top: 0,
     zIndex: 5,
     padding: "10px 12px 12px",
-    background:
-      "linear-gradient(180deg, rgba(9,11,20,0.98) 0%, rgba(10,14,28,0.98) 100%)",
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.35)",
+    background: "var(--sidebar-bg)",
+    borderBottom: "1px solid var(--border)",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.15)",
   },
 
   titleRow: {
@@ -158,24 +156,24 @@ const styles = {
     alignItems: "center",
     padding: "4px 8px",
     borderRadius: 999,
-    background: "rgba(255,255,255,0.08)",
-    border: "1px solid rgba(255,255,255,0.12)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
     fontSize: 11,
     fontWeight: 800,
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
 
-  h3: { margin: 0, fontSize: 15, fontWeight: 800, color: "#fff" },
-  sub: { fontSize: 12, color: "rgba(229,231,235,0.65)" },
+  h3: { margin: 0, fontSize: 15, fontWeight: 800, color: "var(--text)" },
+  sub: { fontSize: 12, color: "var(--text3)" },
 
   clearBtn: {
     marginLeft: "auto",
     padding: "6px 10px",
     borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#fff",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
     cursor: "pointer",
     fontWeight: 700,
   },
@@ -187,14 +185,14 @@ const styles = {
   },
 
   filterWrap: { display: "flex", alignItems: "center", gap: 8 },
-  filterLabel: { fontSize: 11, color: "rgba(229,231,235,0.6)", minWidth: 36 },
+  filterLabel: { fontSize: 11, color: "var(--text3)", minWidth: 36 },
   select: {
     flex: 1,
     padding: "7px 9px",
-    border: "1px solid rgba(255,255,255,0.14)",
+    border: "1px solid var(--input-border)",
     borderRadius: 10,
-    background: "rgba(255,255,255,0.04)",
-    color: "#e5e7eb",
+    background: "var(--select-bg)",
+    color: "var(--select-color)",
     fontSize: 13,
     outline: "none",
   },
@@ -245,11 +243,11 @@ const styles = {
     cursor: hasMap ? "pointer" : "not-allowed",
   }),
 
-  name: { fontWeight: 800, fontSize: 14, color: "#fff", marginBottom: 3 },
-  dateLine: { fontSize: 12, color: "rgba(229,231,235,0.8)" },
+  name: { fontWeight: 800, fontSize: 14, color: "var(--text)", marginBottom: 3 },
+  dateLine: { fontSize: 12, color: "var(--text2)" },
   metaRow: {
     fontSize: 12,
-    color: "rgba(229,231,235,0.95)",
+    color: "var(--text)",
     marginTop: 6,
     display: "flex",
     gap: 8,
@@ -265,17 +263,17 @@ const styles = {
     fontWeight: 900,
     letterSpacing: 0.4,
     textTransform: "uppercase",
-    background: "rgba(0,0,0,0.35)",
-    border: "1px solid rgba(255,255,255,0.12)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
     color: theme.text,
   }),
 
-  expandIcon: { fontSize: 16, color: "rgba(229,231,235,0.75)", paddingLeft: 8 },
+  expandIcon: { fontSize: 16, color: "var(--text2)", paddingLeft: 8 },
 
   expandedPanel: {
     padding: "10px 12px 12px",
-    background: "rgba(0,0,0,0.28)",
-    borderTop: "1px solid rgba(255,255,255,0.10)",
+    background: "var(--surface)",
+    borderTop: "1px solid var(--border)",
   },
 
   detailGrid: {
@@ -286,41 +284,41 @@ const styles = {
   },
 
   detailCard: {
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.10)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
     borderRadius: 10,
     padding: "8px 10px",
   },
-  detailLabel: { fontSize: 11, color: "rgba(229,231,235,0.6)", marginBottom: 2 },
-  detailValue: { fontWeight: 700, color: "#fff" },
+  detailLabel: { fontSize: 11, color: "var(--text3)", marginBottom: 2 },
+  detailValue: { fontWeight: 700, color: "var(--text)" },
 
   splitsTable: {
     width: "100%",
     fontSize: 12,
     borderCollapse: "collapse",
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.10)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
     borderRadius: 10,
     overflow: "hidden",
   },
   splitsHeadRow: {
     textAlign: "left",
-    color: "rgba(229,231,235,0.75)",
-    background: "rgba(255,255,255,0.06)",
+    color: "var(--text2)",
+    background: "var(--surface2)",
   },
 
   loadMoreWrap: { padding: 12, display: "flex", justifyContent: "center" },
   loadMoreBtn: {
     padding: "8px 12px",
     borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#fff",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
     cursor: "pointer",
     fontWeight: 700,
   },
 
-  empty: { padding: 12, fontSize: 13, color: "rgba(229,231,235,0.65)" },
+  empty: { padding: 12, fontSize: 13, color: "var(--text3)" },
 };
 
 // ---------- component ----------
@@ -363,8 +361,9 @@ export default function RecentRunsList({
       : (it.moving_time && it.distance ? (it.moving_time / (it.distance / 1000)) : null);
 
     const isWalk = secPerKm != null && secPerKm > WALK_PACE_S_PER_KM;
-    const isWorkout = !isWalk && secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
-    const isLong = !isWalk && durationSec >= LONG_RUN_SECONDS;
+    const isWO = it.name && (it.name.includes("WO") || it.name.includes("Workout") || it.name.includes("Session"));
+    const isWorkout = !isWalk && (isWO || (secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM));
+    const isLong = !isWalk && !isWorkout && durationSec >= LONG_RUN_SECONDS;
     const isJog = !isWalk && !isWorkout && !isLong;
 
     const shoeLabel = it.shoe_name || it.gear_name || "(no shoe)";
@@ -506,8 +505,9 @@ export default function RecentRunsList({
 
           const isTread = !hasMap && /tread/i.test(name);
           const isWalk = secPerKm != null && secPerKm > WALK_PACE_S_PER_KM;
-          const isWorkout = !isWalk && secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM;
-          const isLong = !isWalk && (durationSec || 0) >= LONG_RUN_SECONDS;
+          const isWO = name && (name.includes("WO") || name.includes("Workout") || name.includes("Session"));
+          const isWorkout = !isWalk && (isWO || (secPerKm != null && secPerKm < WORKOUT_PACE_S_PER_KM));
+          const isLong = !isWalk && !isWorkout && (durationSec || 0) >= LONG_RUN_SECONDS;
           const theme =
             isTread ? KIND_THEME.tread :
             isWalk ? KIND_THEME.walk :
@@ -585,14 +585,14 @@ export default function RecentRunsList({
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                           <div style={{ fontWeight: 800 }}>Km splits</div>
                           {!usingReal && geomSplits.length > 0 && (
-                            <span style={{ fontSize: 10, color: "rgba(229,231,235,0.5)", fontStyle: "italic" }}>
+                            <span style={{ fontSize: 10, color: "var(--text3)", fontStyle: "italic" }}>
                               from GPS trace
                             </span>
                           )}
                         </div>
 
                         {splitsLoading[id] && (
-                          <div style={{ fontSize: 12, color: "rgba(229,231,235,0.7)" }}>Loading splits…</div>
+                          <div style={{ fontSize: 12, color: "var(--text2)" }}>Loading splits…</div>
                         )}
                         {splitsError[id] && (
                           <div style={{ fontSize: 12, color: "#fca5a5" }}>{splitsError[id]}</div>
@@ -628,7 +628,7 @@ export default function RecentRunsList({
                                       title={`Highlight km ${km} on the map`}
                                       aria-selected={isActiveSplit}
                                       style={{
-                                        borderTop: "1px solid rgba(255,255,255,0.08)",
+                                        borderTop: "1px solid var(--border)",
                                         cursor: "pointer",
                                         background: isActiveSplit ? "rgba(59,130,246,0.18)" : "transparent",
                                         fontWeight: isActiveSplit ? 800 : 500,

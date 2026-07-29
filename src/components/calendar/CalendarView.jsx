@@ -5,7 +5,7 @@ import CalendarMileageFill from "./CalendarMileageDots";
  * CalendarView
  * Wrapper for the calendar. Uses items (from runs_index.json) for pace/duration.
  */
-export default function CalendarView({ features, filtered, items = [] }) {
+export default function CalendarView({ features, filtered, items = [], shoeOverrides = {}, workoutNotes = {} }) {
   return (
     <div style={styles.page}>
       <div style={styles.wrap}>
@@ -14,6 +14,8 @@ export default function CalendarView({ features, filtered, items = [] }) {
           title="Mileage calendar"
           maxKmForScale={30}
           fitToContainer={true}
+          shoeOverrides={shoeOverrides}
+          workoutNotes={workoutNotes}
         />
       </div>
     </div>

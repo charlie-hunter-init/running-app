@@ -27,8 +27,8 @@ export default function ShoeTable({ byShoe }) {
         width: "100%",
         overflow: "hidden",
         borderRadius: 16,
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.03)",
+        border: "1px solid var(--border)",
+        background: "var(--surface)",
       }}
     >
       <div style={{ overflowX: "auto" }}>
@@ -56,7 +56,7 @@ export default function ShoeTable({ byShoe }) {
                 }
               >
                 <td style={td("left")}>
-                  <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>{r.shoe}</div>
+                  <div style={{ fontWeight: 800, color: "var(--text)" }}>{r.shoe}</div>
                 </td>
                 <td style={td("right")}>{r.km}</td>
                 <td style={td("right")}>{r.runs}</td>
@@ -80,10 +80,10 @@ function th(align) {
     fontSize: 12,
     fontWeight: 950,
     letterSpacing: "0.02em",
-    color: "rgba(229,231,235,0.80)",
-    background: "rgba(5,6,10,0.75)",
+    color: "var(--text2)",
+    background: "var(--surface)",
     backdropFilter: "blur(8px)",
-    borderBottom: "1px solid rgba(255,255,255,0.10)",
+    borderBottom: "1px solid var(--border)",
     whiteSpace: "nowrap",
   };
 }
@@ -93,8 +93,8 @@ function td(align) {
     textAlign: align,
     padding: "10px 12px",
     fontSize: 13,
-    color: "rgba(229,231,235,0.85)",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    color: "var(--text2)",
+    borderBottom: "1px solid var(--border)",
     whiteSpace: "nowrap",
   };
 }

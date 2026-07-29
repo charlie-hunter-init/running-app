@@ -107,21 +107,14 @@ export default function CalendarMileageFill({
   minDotPx = 12,
   labelMinPx = 20,
   fitToContainer = true,
+  shoeOverrides = {},
+  workoutNotes = {},
 }) {
   // Build unified activity list
   const activities = React.useMemo(
     () => normaliseActivities(items, features),
     [items, features]
   );
-
-  // Load shoe overrides for WO activity splits
-  const [shoeOverrides, setShoeOverrides] = React.useState({});
-  React.useEffect(() => {
-    fetch("/api/shoe-override?action=get_all")
-      .then((r) => r.ok ? r.json() : {})
-      .then((data) => setShoeOverrides(data.overrides || {}))
-      .catch(() => {});
-  }, []);
 
   // Aggregate per-day using same rules as RecentRunsList
   const { byDay, latestDate } = React.useMemo(() => {
@@ -157,6 +150,21 @@ export default function CalendarMileageFill({
         continue;
       }
 
+      // Fallback: if WO has warm_up_km/warm_down_km from workout notes, split into jog + workout
+      const note = workoutNotes[a.id];
+      if (isWO && note && (note.warm_up_km || note.warm_down_km)) {
+        const warmUpKm = note.warm_up_km || 0;
+        const warmDownKm = note.warm_down_km || 0;
+        const jogKm = warmUpKm + warmDownKm;
+        const workoutKm = Math.max(0, km - jogKm);
+        const cur = m.get(key) || { totalKm: 0, walk: 0, workout: 0, long: 0, jog: 0 };
+        cur.totalKm += km;
+        cur.jog += jogKm;
+        cur.workout += workoutKm;
+        m.set(key, cur);
+        continue;
+      }
+
       // Classify: walk (pace ≥ 9:00) > WO name (workout) > workout pace (< 4:00) > long (≥ 70 min) > jog
       let kind = "jog";
       if (secPerKm != null && secPerKm >= WALK_PACE_SPK)        kind = "walk";
@@ -171,7 +179,7 @@ export default function CalendarMileageFill({
     }
 
     return { byDay: m, latestDate: latest || new Date() };
-  }, [activities, timeZone, shoeOverrides]);
+  }, [activities, timeZone, shoeOverrides, workoutNotes]);
 
   // Month model
   const initialAnchor = React.useMemo(() => {

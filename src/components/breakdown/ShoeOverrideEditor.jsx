@@ -158,7 +158,7 @@ export default function ShoeOverrideEditor({ activityId, activityName, totalDist
     <div style={styles.container}>
       <div style={styles.header} onClick={() => setExpanded(!expanded)}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <span style={{ fontSize: 10, color: "rgba(241,245,249,0.5)", transition: "transform 0.2s", transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+          <span style={{ fontSize: 10, color: "var(--text3)", transition: "transform 0.2s", transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
           <div style={styles.title}>Shoe Override</div>
           {hasExisting && !expanded && <span style={{ fontSize: 9, color: "#86efac", opacity: 0.8 }}>✓ saved</span>}
         </div>
@@ -258,8 +258,8 @@ export default function ShoeOverrideEditor({ activityId, activityName, totalDist
 
 const styles = {
   container: {
-    background: "rgba(15,18,30,0.9)",
-    border: "1px solid rgba(255,255,255,0.08)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
     borderRadius: 12,
     padding: "16px 20px",
   },
@@ -272,11 +272,11 @@ const styles = {
   title: {
     fontSize: 13,
     fontWeight: 700,
-    color: "#f1f5f9",
+    color: "var(--text)",
   },
   totalDistance: {
     fontSize: 11,
-    color: "rgba(241,245,249,0.6)",
+    color: "var(--text3)",
   },
   segmentRow: {
     display: "flex",
@@ -287,16 +287,16 @@ const styles = {
   segmentLabel: {
     fontSize: 10,
     fontWeight: 600,
-    color: "rgba(241,245,249,0.5)",
+    color: "var(--text3)",
     width: 50,
     flexShrink: 0,
   },
   input: {
     padding: "6px 10px",
     borderRadius: 6,
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "rgba(255,255,255,0.05)",
-    color: "#f1f5f9",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
     fontSize: 12,
     outline: "none",
     flex: 1,
@@ -304,16 +304,16 @@ const styles = {
   select: {
     padding: "6px 10px",
     borderRadius: 6,
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "rgba(255,255,255,0.05)",
-    color: "#f1f5f9",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
     fontSize: 12,
     outline: "none",
     cursor: "pointer",
   },
   kmLabel: {
     fontSize: 11,
-    color: "rgba(241,245,249,0.5)",
+    color: "var(--text3)",
   },
   actions: {
     display: "flex",
@@ -360,6 +360,6 @@ const styles = {
   },
   loadingText: {
     fontSize: 11,
-    color: "rgba(241,245,249,0.5)",
+    color: "var(--text3)",
   },
 };

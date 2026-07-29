@@ -121,10 +121,10 @@ export default function StreakTimelinePanel({
 
   // Palette for non-current streaks — dark theme consistent
   const palette = [
-    { bg: "rgba(99,102,241,0.12)",  text: "rgba(229,231,235,0.92)", border: "rgba(99,102,241,0.30)"  },
-    { bg: "rgba(14,165,233,0.10)",  text: "rgba(229,231,235,0.88)", border: "rgba(14,165,233,0.25)"  },
-    { bg: "rgba(52,211,153,0.09)",  text: "rgba(229,231,235,0.85)", border: "rgba(52,211,153,0.22)"  },
-    { bg: "rgba(255,255,255,0.05)", text: "rgba(229,231,235,0.80)", border: "rgba(255,255,255,0.10)" },
+    { bg: "rgba(99,102,241,0.12)",  text: "var(--text)", border: "rgba(99,102,241,0.30)"  },
+    { bg: "rgba(14,165,233,0.10)",  text: "var(--text)", border: "rgba(14,165,233,0.25)"  },
+    { bg: "rgba(52,211,153,0.09)",  text: "var(--text)", border: "rgba(52,211,153,0.22)"  },
+    { bg: "var(--surface)", text: "var(--text)", border: "var(--border)" },
   ];
 
   const fmtKm = (m) => (m / 1000).toFixed(1);
@@ -139,7 +139,7 @@ export default function StreakTimelinePanel({
     <div style={{ borderRadius: 12, padding: 0 }}>
       <div style={{ marginBottom: 12 }}>
         {top.length === 0 && (
-          <div style={{ fontSize: 13, color: "rgba(229,231,235,0.55)" }}>No streaks yet.</div>
+          <div style={{ fontSize: 13, color: "var(--text3)" }}>No streaks yet.</div>
         )}
       </div>
 
@@ -178,7 +178,7 @@ export default function StreakTimelinePanel({
               ...baseStyle,
               background:
                 "linear-gradient(90deg, #1d4ed8 0%, #6366f1 50%, #0ea5e9 100%)",
-              color: "#e5e7eb",
+              color: "#fff",
               border: "1px solid rgba(129,140,248,0.9)",
             }
           : {
@@ -209,11 +209,11 @@ export default function StreakTimelinePanel({
               margin: "12px 0 8px",
             }}
           >
-            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.10)" }} />
-            <span style={{ fontSize: 11, color: "rgba(229,231,235,0.5)", fontWeight: 700, whiteSpace: "nowrap" }}>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+            <span style={{ fontSize: 11, color: "var(--text3)", fontWeight: 700, whiteSpace: "nowrap" }}>
               YOUR CURRENT STREAK
             </span>
-            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.10)" }} />
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
           </div>
           <div
             style={{
@@ -225,7 +225,7 @@ export default function StreakTimelinePanel({
               alignItems: "center",
               gap: 10,
               background: "linear-gradient(90deg, #1d4ed8 0%, #6366f1 50%, #0ea5e9 100%)",
-              color: "#e5e7eb",
+              color: "#fff",
               border: "1px solid rgba(129,140,248,0.9)",
               boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
               opacity: mounted ? 1 : 0,
@@ -242,7 +242,7 @@ export default function StreakTimelinePanel({
               style={{
                 marginLeft: "auto",
                 fontSize: 11,
-                color: "rgba(229,231,235,0.7)",
+                color: "var(--text3)",
                 whiteSpace: "nowrap",
               }}
             >

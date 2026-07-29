@@ -102,7 +102,7 @@ export default function InsightsView({ stats, features, filtered, allItems = [],
               <div className="insights-stat-k">Current Streak</div>
               <div className="insights-stat-v">
                 {currentStreak}
-                <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(229,231,235,0.6)", marginLeft: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text3)", marginLeft: 4 }}>
                   day{currentStreak !== 1 ? "s" : ""}
                 </span>
               </div>
@@ -111,7 +111,7 @@ export default function InsightsView({ stats, features, filtered, allItems = [],
               <div className="insights-stat-k">Days Run This Year</div>
               <div className="insights-stat-v">
                 {daysRunThisYear}
-                <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(229,231,235,0.6)", marginLeft: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text3)", marginLeft: 4 }}>
                   / {totalDaysThisYear}
                 </span>
               </div>
@@ -119,7 +119,7 @@ export default function InsightsView({ stats, features, filtered, allItems = [],
           </div>
 
           {/* Divider */}
-          <div style={{ height: 1, background: "rgba(255,255,255,0.07)", margin: "14px 0" }} />
+          <div style={{ height: 1, background: "var(--border)", margin: "14px 0" }} />
 
           {/* This week snapshot — inside same hero box */}
           <div className="insights-card-title-row" style={{ marginBottom: 10 }}>

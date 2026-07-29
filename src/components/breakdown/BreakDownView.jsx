@@ -266,7 +266,9 @@ function Stat({ label, value, icon }) {
 }
 
 // ---- Combined Chart: pace + HR lines with elevation profile underneath ----
-function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, setShowPace, showHr, setShowHr }) {
+function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, setShowPace, showHr, setShowHr, warmUpKm = 0, warmDownKm = 0, totalDistanceKm = 0, weatherSamples = [] }) {
+  const [zoomWorkout, setZoomWorkout] = useState(false);
+  const hasWarmUpDown = warmUpKm > 0 || warmDownKm > 0;
   const W = 1000, H_MAIN = 200, H_ELEV = 60, GAP = 4;
   const H = H_MAIN + GAP + H_ELEV;
   const PL = 40, PR = 40, PT = 10, PB = 20;
@@ -280,6 +282,10 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
   const useStreams = !!(streams && streams.velocity_smooth && streams.distance && streams.velocity_smooth.length > 0);
   const maxPoints = 300;
 
+  // Zoom range (in km)
+  const zoomStartKm = zoomWorkout ? warmUpKm : 0;
+  const zoomEndKm = zoomWorkout ? (totalDistanceKm - warmDownKm) : totalDistanceKm;
+
   // Downsampled stream data
   const { streamDistKm, streamPacePoints, streamHrPoints, streamElevPoints } = useMemo(() => {
     if (!useStreams) return { streamDistKm: [], streamPacePoints: [], streamHrPoints: [], streamElevPoints: [] };
@@ -289,6 +295,8 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
     for (let i = 0; i < total; i += step) {
       const vel = streams.velocity_smooth[i];
       const dist = streams.distance[i] / 1000; // km
+      // If zoomed, skip points outside the workout range
+      if (zoomWorkout && (dist < zoomStartKm || dist > zoomEndKm)) continue;
       const pace = vel > 0.3 ? 1000 / vel : null; // sec/km, filter out near-zero (stopped)
       distKm.push(dist);
       paceP.push(pace);
@@ -296,12 +304,24 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
       elevP.push(streams.altitude ? (streams.altitude[i] || 0) : 0);
     }
     return { streamDistKm: distKm, streamPacePoints: paceP, streamHrPoints: hrP, streamElevPoints: elevP };
-  }, [useStreams, streams]);
+  }, [useStreams, streams, zoomWorkout, zoomStartKm, zoomEndKm]);
 
-  const maxDist = useStreams ? streamDistKm[streamDistKm.length - 1] || 1 : splits.length;
+  // For splits mode, determine visible range
+  const visibleSplits = useMemo(() => {
+    if (useStreams || !zoomWorkout) return splits;
+    const startIdx = Math.floor(warmUpKm);
+    const endIdx = Math.ceil(totalDistanceKm - warmDownKm);
+    return splits.slice(startIdx, endIdx);
+  }, [splits, useStreams, zoomWorkout, warmUpKm, warmDownKm, totalDistanceKm]);
+
+  const effectiveSplits = zoomWorkout && !useStreams ? visibleSplits : splits;
+
+  const maxDist = useStreams
+    ? (streamDistKm.length > 0 ? (streamDistKm[streamDistKm.length - 1] - streamDistKm[0]) || 1 : 1)
+    : effectiveSplits.length;
 
   // Pace values — from streams or splits
-  const paceVals = useStreams ? streamPacePoints : splits.map((sp) => sp.distance && sp.moving_time ? sp.moving_time / (sp.distance / 1000) : null);
+  const paceVals = useStreams ? streamPacePoints : effectiveSplits.map((sp) => sp.distance && sp.moving_time ? sp.moving_time / (sp.distance / 1000) : null);
   const validPace = paceVals.filter((v) => v != null);
   // Fixed pace range: 2:30/km (150s) to 6:00/km (360s)
   let pLo = 150; // 2:30 min/km
@@ -309,7 +329,7 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
   const pRange = pHi - pLo;
 
   // HR values — from streams or splits
-  const hrVals = useStreams ? streamHrPoints : splits.map((sp) => sp.average_heartrate || null);
+  const hrVals = useStreams ? streamHrPoints : effectiveSplits.map((sp) => sp.average_heartrate || null);
   const validHr = hrVals.filter((v) => v != null);
   // Fixed HR range: 50-230 bpm
   let hLo = 50;
@@ -322,7 +342,7 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
     // Use raw altitude stream (already absolute elevation)
     cumElev = streamElevPoints;
   } else {
-    const elevVals = splits.map((sp) => sp.elevation_difference ?? 0);
+    const elevVals = effectiveSplits.map((sp) => sp.elevation_difference ?? 0);
     cumElev = [0];
     for (let i = 0; i < elevVals.length; i++) cumElev.push(cumElev[i] + elevVals[i]);
   }
@@ -330,9 +350,10 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
   const eRange = eHi - eLo || 1;
 
   // X position: distance-based for streams, index-based for splits
+  const streamBaseKm = useStreams && streamDistKm.length > 0 ? streamDistKm[0] : 0;
   const xPos = useStreams
-    ? (i) => PL + (streamDistKm[i] / maxDist) * pW
-    : (i) => PL + (i / (splits.length - 1 || 1)) * pW;
+    ? (i) => PL + ((streamDistKm[i] - streamBaseKm) / maxDist) * pW
+    : (i) => PL + (i / (effectiveSplits.length - 1 || 1)) * pW;
 
   // Y positions for main chart (pace is inverted — lower pace = higher on chart)
   const paceY = (v) => v == null ? PT + mainH / 2 : PT + ((v - pLo) / pRange) * mainH;
@@ -393,11 +414,12 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
     if (useStreams) {
       // Map pixel x to distance in km, then report as fractional km for HoverDot
       const distFrac = (svgP.x - PL) / pW;
-      const distKm = distFrac * maxDist;
-      setHoveredKm(Math.max(0, Math.min(maxDist, distKm)));
+      const distKm = streamBaseKm + distFrac * maxDist;
+      setHoveredKm(Math.max(streamBaseKm, Math.min(streamBaseKm + maxDist, distKm)));
     } else {
-      const frac = ((svgP.x - PL) / pW) * (splits.length - 1);
-      setHoveredKm(Math.max(0, Math.min(splits.length - 1, frac)));
+      const frac = ((svgP.x - PL) / pW) * (effectiveSplits.length - 1);
+      const offsetIdx = zoomWorkout ? Math.floor(warmUpKm) : 0;
+      setHoveredKm(Math.max(0, Math.min(splits.length - 1, offsetIdx + frac)));
     }
   };
 
@@ -417,8 +439,12 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
 
   const hoverX = hoveredKm != null
     ? useStreams
-      ? PL + (hoveredKm / maxDist) * pW
-      : xPos(hoveredKm)
+      ? PL + ((hoveredKm - streamBaseKm) / maxDist) * pW
+      : PL + ((() => {
+          const offsetIdx = zoomWorkout ? Math.floor(warmUpKm) : 0;
+          const localIdx = hoveredKm - offsetIdx;
+          return localIdx / (effectiveSplits.length - 1 || 1);
+        })()) * pW
     : null;
 
   // Interpolate values at hover position
@@ -462,28 +488,54 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
     return Math.round(total);
   }, [hoveredKm, splits, useStreams, streams, hoverStreamIdx]);
 
+  // Weather temperature at hovered position (interpolate from weather_samples by elapsed time)
+  const hoverWeather = useMemo(() => {
+    if (hoveredKm == null || !weatherSamples.length || hoverElapsedTime == null) return null;
+    // Find the nearest weather sample by elapsed_seconds
+    let bestIdx = 0;
+    let bestDiff = Math.abs(weatherSamples[0].elapsed_seconds - hoverElapsedTime);
+    for (let i = 1; i < weatherSamples.length; i++) {
+      const diff = Math.abs(weatherSamples[i].elapsed_seconds - hoverElapsedTime);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+    const sample = weatherSamples[bestIdx];
+    if (sample.temperature_2m == null && sample.apparent_temperature == null) return null;
+    return { temp: sample.temperature_2m, feels: sample.apparent_temperature };
+  }, [hoveredKm, weatherSamples, hoverElapsedTime]);
+
   // Tooltip X position as percentage
   const tooltipPct = hoveredKm != null
-    ? useStreams ? (hoveredKm / maxDist) * 100 : (hoveredKm / (splits.length - 1 || 1)) * 100
+    ? useStreams ? ((hoveredKm - streamBaseKm) / maxDist) * 100 : (() => {
+        const offsetIdx = zoomWorkout ? Math.floor(warmUpKm) : 0;
+        return ((hoveredKm - offsetIdx) / (effectiveSplits.length - 1 || 1)) * 100;
+      })()
     : 0;
 
   // X-axis km markers
   const xAxisLabels = useMemo(() => {
     if (useStreams) {
-      const totalKm = Math.ceil(maxDist);
+      const startKm = streamDistKm.length > 0 ? streamDistKm[0] : 0;
+      const endKm = streamDistKm.length > 0 ? streamDistKm[streamDistKm.length - 1] : 0;
+      const rangeKm = endKm - startKm;
+      const totalKm = Math.ceil(rangeKm);
       const step = totalKm > 20 ? 5 : totalKm > 12 ? 2 : 1;
       const labels = [];
-      for (let k = step; k <= totalKm; k += step) {
-        labels.push({ km: k, x: PL + (k / maxDist) * pW });
+      const firstLabel = Math.ceil(startKm / step) * step;
+      for (let k = firstLabel; k <= endKm; k += step) {
+        labels.push({ km: k, x: PL + ((k - startKm) / rangeKm) * pW });
       }
       return labels;
     }
-    return splits.map((_, i) => {
-      const step = splits.length > 20 ? 5 : splits.length > 12 ? 2 : 1;
-      if (i % step !== 0 && i !== splits.length - 1) return null;
-      return { km: i + 1, x: xPos(i) };
+    const startIdx = zoomWorkout ? Math.floor(warmUpKm) : 0;
+    return effectiveSplits.map((_, i) => {
+      const step = effectiveSplits.length > 20 ? 5 : effectiveSplits.length > 12 ? 2 : 1;
+      if (i % step !== 0 && i !== effectiveSplits.length - 1) return null;
+      return { km: startIdx + i + 1, x: xPos(i) };
     }).filter(Boolean);
-  }, [useStreams, maxDist, splits, pW, PL]);
+  }, [useStreams, streamDistKm, effectiveSplits, pW, PL, zoomWorkout, warmUpKm, xPos]);
 
   return (
     <div style={{ ...s.chartCard, position: "relative" }}>
@@ -501,6 +553,13 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
             Heart Rate
           </button>
         )}
+        {hasWarmUpDown && (
+          <button onClick={() => setZoomWorkout(!zoomWorkout)}
+            style={{ ...toggleStyle, borderColor: zoomWorkout ? "#f59e0b" : "rgba(255,255,255,0.1)", color: zoomWorkout ? "#f59e0b" : "rgba(255,255,255,0.4)" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: zoomWorkout ? "#f59e0b" : "rgba(255,255,255,0.2)", display: "inline-block", marginRight: 4 }} />
+            Zoom Workout
+          </button>
+        )}
       </div>
 
       {/* Floating tooltip */}
@@ -509,8 +568,8 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
           position: "absolute",
           top: 6,
           left: `clamp(120px, calc(${tooltipPct}% + 30px), calc(100% - 180px))`,
-          background: "rgba(15,17,25,0.95)",
-          border: "1px solid rgba(255,255,255,0.12)",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
           borderRadius: 8,
           padding: "8px 12px",
           display: "flex",
@@ -541,11 +600,49 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text, #e5e7eb)" }}>{formatDuration(hoverElapsedTime)}</div>
             </div>
           )}
+          {hoverWeather != null && hoverWeather.temp != null && (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 9, color: "#f59e0b" }}>Temp</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>{hoverWeather.temp.toFixed(1)}°</div>
+            </div>
+          )}
+          {hoverWeather != null && hoverWeather.feels != null && (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 9, color: "#a78bfa" }}>Feels</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>{hoverWeather.feels.toFixed(1)}°</div>
+            </div>
+          )}
         </div>
       )}
 
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 280, display: "block", cursor: "crosshair" }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setHoveredKm(null)}>
+
+        {/* warm up / warm down zones */}
+        {!zoomWorkout && warmUpKm > 0 && totalDistanceKm > 0 && (
+          <rect
+            x={PL}
+            y={PT}
+            width={(warmUpKm / totalDistanceKm) * pW}
+            height={mainH + GAP + H_ELEV}
+            fill="rgba(52,211,153,0.08)"
+            stroke="rgba(52,211,153,0.3)"
+            strokeWidth={0.5}
+            strokeDasharray="3,2"
+          />
+        )}
+        {!zoomWorkout && warmDownKm > 0 && totalDistanceKm > 0 && (
+          <rect
+            x={PL + ((totalDistanceKm - warmDownKm) / totalDistanceKm) * pW}
+            y={PT}
+            width={(warmDownKm / totalDistanceKm) * pW}
+            height={mainH + GAP + H_ELEV}
+            fill="rgba(52,211,153,0.08)"
+            stroke="rgba(52,211,153,0.3)"
+            strokeWidth={0.5}
+            strokeDasharray="3,2"
+          />
+        )}
 
         {/* grid */}
         {[0, 0.5, 1].map((f) => (
@@ -605,9 +702,164 @@ function CombinedChart({ splits, streams, hoveredKm, setHoveredKm, showPace, set
 
 const toggleStyle = {
   padding: "4px 10px", borderRadius: 5, fontSize: 10, fontWeight: 600,
-  border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
+  border: "1px solid var(--border)", background: "transparent",
   cursor: "pointer", display: "flex", alignItems: "center",
 };
+
+// ---- Workout Breakdown Box ----
+function WorkoutBox({ totalDistanceM, totalTimeS, warmUpKm, setWarmUpKm, warmDownKm, setWarmDownKm, activityId, isWO, preloadedNote = null }) {
+  const totalKm = (totalDistanceM / 1000).toFixed(2);
+  const [description, setDescription] = useState("");
+  const [mood, setMood] = useState(null); // 1-5
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Use preloaded note if available, otherwise fetch
+  useEffect(() => {
+    if (!activityId) return;
+    if (preloadedNote) {
+      setDescription(preloadedNote.description || "");
+      setMood(preloadedNote.mood || null);
+      if (preloadedNote.warm_up_km) setWarmUpKm(String(preloadedNote.warm_up_km));
+      if (preloadedNote.warm_down_km) setWarmDownKm(String(preloadedNote.warm_down_km));
+      setLoaded(true);
+      return;
+    }
+    fetch(`/api/workout-notes?action=get&activity_id=${activityId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.note) {
+          setDescription(data.note.description || "");
+          setMood(data.note.mood || null);
+          if (data.note.warm_up_km) setWarmUpKm(String(data.note.warm_up_km));
+          if (data.note.warm_down_km) setWarmDownKm(String(data.note.warm_down_km));
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [activityId, preloadedNote]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await fetch("/api/workout-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save",
+          activity_id: String(activityId),
+          description,
+          mood,
+          warm_up_km: parseFloat(warmUpKm) || null,
+          warm_down_km: parseFloat(warmDownKm) || null,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to save workout note:", err);
+    }
+    setSaving(false);
+  };
+
+  const warmUpKmNum = parseFloat(warmUpKm) || 0;
+  const warmDownKmNum = parseFloat(warmDownKm) || 0;
+  const workoutKm = Math.max(0, (totalDistanceM / 1000) - warmUpKmNum - warmDownKmNum).toFixed(2);
+
+  // Estimate times proportionally
+  const warmUpTimeS = totalTimeS && warmUpKmNum > 0 ? Math.round(totalTimeS * (warmUpKmNum / (totalDistanceM / 1000))) : null;
+  const warmDownTimeS = totalTimeS && warmDownKmNum > 0 ? Math.round(totalTimeS * (warmDownKmNum / (totalDistanceM / 1000))) : null;
+  const workoutTimeS = totalTimeS ? totalTimeS - (warmUpTimeS || 0) - (warmDownTimeS || 0) : null;
+
+  const moods = [
+    { id: 1, label: "Terrible", svg: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/><circle cx="8.5" cy="9.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="9.5" r="1.2" fill="currentColor"/><path d="M8 17c1-2 3-3 4-3s3 1 4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" transform="rotate(180 12 15.5)"/></svg> },
+    { id: 2, label: "Tough", svg: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/><circle cx="8.5" cy="9.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="9.5" r="1.2" fill="currentColor"/><path d="M9 16h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+    { id: 3, label: "Fine", svg: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/><circle cx="8.5" cy="9.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="9.5" r="1.2" fill="currentColor"/><path d="M9 15.5c.5.5 1.5 1 3 1s2.5-.5 3-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+    { id: 4, label: "Good", svg: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/><circle cx="8.5" cy="9.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="9.5" r="1.2" fill="currentColor"/><path d="M8 15c1 2 3 3 4 3s3-1 4-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+    { id: 5, label: "Great", svg: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/><path d="M6.5 9.5c1-1.5 2.5-2 3.5-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M14 8.5c1-1 2.5-.5 3.5 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><rect x="6.5" y="8" width="11" height="4" rx="2" fill="currentColor" opacity="0.15"/><path d="M8 14c1 2.5 3 3.5 4 3.5s3-1 4-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  ];
+
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{isWO ? "Workout Breakdown" : "Run Notes"}</div>
+
+      {isWO && (
+        <>
+          <div style={{ fontSize: 10, color: "var(--text3)" }}>Total: {totalKm} km</div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#34d399", width: 75 }}>Warm Up</span>
+          <input type="number" step="0.1" min="0" placeholder="km" value={warmUpKm}
+            onChange={(e) => setWarmUpKm(e.target.value)}
+            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", fontSize: 11, width: 60, outline: "none" }} />
+          <span style={{ fontSize: 10, color: "var(--text3)" }}>km</span>
+          {warmUpTimeS != null && <span style={{ fontSize: 10, color: "var(--text3)" }}>~{formatDuration(warmUpTimeS)}</span>}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#f87171", width: 75 }}>Workout</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{workoutKm} km</span>
+          {workoutTimeS != null && <span style={{ fontSize: 10, color: "var(--text3)" }}>~{formatDuration(workoutTimeS)}</span>}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#34d399", width: 75 }}>Warm Down</span>
+          <input type="number" step="0.1" min="0" placeholder="km" value={warmDownKm}
+            onChange={(e) => setWarmDownKm(e.target.value)}
+            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", fontSize: 11, width: 60, outline: "none" }} />
+          <span style={{ fontSize: 10, color: "var(--text3)" }}>km</span>
+          {warmDownTimeS != null && <span style={{ fontSize: 10, color: "var(--text3)" }}>~{formatDuration(warmDownTimeS)}</span>}
+        </div>
+      </div>
+        </>
+      )}
+
+      {/* Mood rating */}
+      <div>
+        <div style={{ fontSize: 10, color: "var(--text3)", marginBottom: 6 }}>How did it feel?</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {moods.map((m) => (
+            <button key={m.id} onClick={() => setMood(m.id)} title={m.label}
+              style={{
+                background: mood === m.id ? "rgba(59,130,246,0.2)" : "transparent",
+                border: mood === m.id ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)",
+                borderRadius: 8, padding: "4px 6px", cursor: "pointer",
+                color: mood === m.id ? "#93c5fd" : "var(--text3)",
+                transition: "all 0.15s",
+              }}>
+              {m.svg}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <textarea
+          placeholder="Workout notes..."
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          style={{
+            width: "100%", padding: "8px 10px", borderRadius: 8,
+            border: "1px solid var(--border)", background: "var(--surface)",
+            color: "var(--text)", fontSize: 11, outline: "none", resize: "vertical",
+            fontFamily: "inherit", boxSizing: "border-box",
+          }}
+        />
+      </div>
+
+      {/* Save button */}
+      <button onClick={handleSave} disabled={saving}
+        style={{
+          padding: "6px 14px", borderRadius: 6, fontSize: 10, fontWeight: 600,
+          border: "1px solid rgba(59,130,246,0.5)", background: "rgba(59,130,246,0.15)",
+          color: "#93c5fd", cursor: "pointer",
+        }}>
+        {saving ? "Saving..." : "Save Notes"}
+      </button>
+    </div>
+  );
+}
 
 // ---- Memoized run list to avoid re-renders on hover ----
 const RunList = React.memo(function RunList({ items, selectedId, onSelect }) {
@@ -637,7 +889,7 @@ const MAP_TILES = {
 };
 
 // ---- main ----
-export default function BreakDownView({ items, idToFeature, stats, setStats }) {
+export default function BreakDownView({ items, idToFeature, stats, setStats, workoutNotes = {} }) {
   const [selectedId, setSelectedId] = useState(null);
   const [splitsData, setSplitsData] = useState(null);
   const [splitsLoading, setSplitsLoading] = useState(false);
@@ -656,7 +908,7 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
   const [showHr, setShowHr] = useState(true);
 
   const runList = useMemo(() =>
-    (items || []).filter((it) => it.has_map && it.distance > 500 && it.type === "Run").slice(0, 2000),
+    (items || []).filter((it) => it.distance > 500 && it.type === "Run").slice(0, 2000),
   [items]);
 
   // Derive unique shoe list from all items for the override dropdown
@@ -717,6 +969,7 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
   const handleSelect = useCallback((id) => {
     const key = String(id);
     setSelectedId(key); setHoveredKm(null); setClickedKm(null); loadSplits(key);
+    setWarmUpKm(""); setWarmDownKm("");
   }, [loadSplits]);
 
   // After an override is saved/deleted, recalculate byShoe and update stats
@@ -732,6 +985,8 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
 
   const splits = splitsData?.splits || [];
   const [clickedKm, setClickedKm] = useState(null);
+  const [warmUpKm, setWarmUpKm] = useState("");
+  const [warmDownKm, setWarmDownKm] = useState("");
 
   // Compute cumulative distance along the route
   const cumDist = useMemo(() => {
@@ -758,6 +1013,31 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
     return segs;
   }, [coords, cumDist, splits]);
 
+  // Warm up / warm down coordinate segments for map overlay
+  const warmUpCoords = useMemo(() => {
+    const warmUpM = (parseFloat(warmUpKm) || 0) * 1000;
+    if (!warmUpM || !coords.length || !cumDist.length) return [];
+    return coords.filter((_, i) => cumDist[i] <= warmUpM);
+  }, [coords, cumDist, warmUpKm]);
+
+  const warmDownCoords = useMemo(() => {
+    const warmDownM = (parseFloat(warmDownKm) || 0) * 1000;
+    if (!warmDownM || !coords.length || !cumDist.length) return [];
+    const totalM = cumDist[cumDist.length - 1];
+    const startM = totalM - warmDownM;
+    return coords.filter((_, i) => cumDist[i] >= startM);
+  }, [coords, cumDist, warmDownKm]);
+
+  // Workout (middle) segment — only when both warm up and warm down are set
+  const workoutCoords = useMemo(() => {
+    const warmUpM = (parseFloat(warmUpKm) || 0) * 1000;
+    const warmDownM = (parseFloat(warmDownKm) || 0) * 1000;
+    if (!warmUpM || !warmDownM || !coords.length || !cumDist.length) return [];
+    const totalM = cumDist[cumDist.length - 1];
+    const endM = totalM - warmDownM;
+    return coords.filter((_, i) => cumDist[i] >= warmUpM && cumDist[i] <= endM);
+  }, [coords, cumDist, warmUpKm, warmDownKm]);
+
   const avgPace = selectedItem ? selectedItem.moving_time / (selectedItem.distance / 1000) : null;
 
   return (
@@ -777,9 +1057,9 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
               <button key={f.id} onClick={() => setFilter(f.id)}
                 style={{
                   flex: 1, padding: "5px 0", borderRadius: 5, fontSize: 10, fontWeight: 600,
-                  border: "1px solid " + (filter === f.id ? "rgba(59,130,246,0.5)" : "rgba(255,255,255,0.08)"),
-                  background: filter === f.id ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.03)",
-                  color: filter === f.id ? "#93c5fd" : "var(--text, #e5e7eb)",
+                  border: "1px solid " + (filter === f.id ? "rgba(59,130,246,0.5)" : "var(--border)"),
+                  background: filter === f.id ? "rgba(59,130,246,0.15)" : "var(--surface)",
+                  color: filter === f.id ? "#93c5fd" : "var(--text)",
                   cursor: "pointer",
                 }}>
                 {f.label}
@@ -821,21 +1101,8 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
               </div>
             </div>
 
-            {/* shoe override editor for workout activities */}
-            {isWorkoutActivity(selectedItem.name) && (
-              <ShoeOverrideEditor
-                key={selectedId}
-                activityId={selectedId}
-                activityName={selectedItem.name}
-                totalDistanceM={selectedItem.distance}
-                stravaShoe={selectedItem.shoe_name ? { name: selectedItem.shoe_name, gearId: selectedItem.gear_id || null } : null}
-                shoeList={shoeList}
-                onOverrideChange={handleOverrideChange}
-              />
-            )}
-
             {/* map + splits side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: coords.length > 1 ? "1fr 1fr" : "1fr", gap: 16 }}>
               {/* map */}
               {coords.length > 1 && (
                 <div style={{ ...s.mapBox, height: 380, aspectRatio: "1", position: "relative" }}>
@@ -859,6 +1126,15 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
                     <TileLayer key={mapStyle} url={MAP_TILES[mapStyle].url} attribution="" />
                     <FitBounds coords={coords} />
                     <Polyline positions={coords.map(([x, y]) => [y, x])} pathOptions={{ color: MAP_TILES[mapStyle].lineColor, weight: 3, opacity: 1 }} />
+                    {warmUpCoords.length > 1 && (
+                      <Polyline positions={warmUpCoords.map(([x, y]) => [y, x])} pathOptions={{ color: "#34d399", weight: 5, opacity: 0.8 }} />
+                    )}
+                    {warmDownCoords.length > 1 && (
+                      <Polyline positions={warmDownCoords.map(([x, y]) => [y, x])} pathOptions={{ color: "#34d399", weight: 5, opacity: 0.8 }} />
+                    )}
+                    {workoutCoords.length > 1 && (
+                      <Polyline positions={workoutCoords.map(([x, y]) => [y, x])} pathOptions={{ color: "#ef4444", weight: 5, opacity: 0.9 }} />
+                    )}
                     {clickedKm != null && kmSegments[clickedKm] && (
                       <>
                         <Polyline positions={kmSegments[clickedKm].map(([x, y]) => [y, x])}
@@ -905,12 +1181,26 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
               )}
             </div>
 
-            {/* combined chart */}
+            {/* combined chart + workout box side by side */}
             {splitsLoading && <div style={s.loadingText}>Loading...</div>}
             {!splitsLoading && splits.length > 0 && (
-              <CombinedChart splits={splits} streams={splitsData?.streams} hoveredKm={hoveredKm} setHoveredKm={setHoveredKmThrottled}
-                showPace={showPace} setShowPace={setShowPace}
-                showHr={showHr} setShowHr={setShowHr} />
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+                <CombinedChart splits={splits} streams={splitsData?.streams} hoveredKm={hoveredKm} setHoveredKm={setHoveredKmThrottled}
+                  showPace={showPace} setShowPace={setShowPace}
+                  showHr={showHr} setShowHr={setShowHr}
+                  warmUpKm={isWorkoutActivity(selectedItem.name) ? (parseFloat(warmUpKm) || 0) : 0}
+                  warmDownKm={isWorkoutActivity(selectedItem.name) ? (parseFloat(warmDownKm) || 0) : 0}
+                  totalDistanceKm={selectedItem.distance / 1000}
+                  weatherSamples={splitsData?.weather_samples || []} />
+
+                {/* Workout/notes box — always shown, warm up/down only for WO */}
+                <WorkoutBox totalDistanceM={selectedItem.distance} totalTimeS={selectedItem.moving_time}
+                  warmUpKm={warmUpKm} setWarmUpKm={setWarmUpKm}
+                  warmDownKm={warmDownKm} setWarmDownKm={setWarmDownKm}
+                  activityId={selectedId}
+                  isWO={isWorkoutActivity(selectedItem.name)}
+                  preloadedNote={workoutNotes[selectedId] || null} />
+              </div>
             )}
 
             {/* best efforts */}
@@ -941,6 +1231,19 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
             {!splitsLoading && !splits.length && (
               <div style={s.loadingText}>No split data available for this run.</div>
             )}
+
+            {/* shoe override editor for workout activities — after best efforts */}
+            {isWorkoutActivity(selectedItem.name) && (
+              <ShoeOverrideEditor
+                key={selectedId}
+                activityId={selectedId}
+                activityName={selectedItem.name}
+                totalDistanceM={selectedItem.distance}
+                stravaShoe={selectedItem.shoe_name ? { name: selectedItem.shoe_name, gearId: selectedItem.gear_id || null } : null}
+                shoeList={shoeList}
+                onOverrideChange={handleOverrideChange}
+              />
+            )}
           </div>
         )}
       </div>
@@ -950,41 +1253,41 @@ export default function BreakDownView({ items, idToFeature, stats, setStats }) {
 
 // ---- styles ----
 const s = {
-  container: { display: "grid", gridTemplateColumns: "280px 1fr", height: "100%", overflow: "hidden", background: "var(--bg, #0a0c14)" },
+  container: { display: "grid", gridTemplateColumns: "280px 1fr", height: "100%", overflow: "hidden", background: "var(--bg)" },
   // sidebar
-  sidebar: { display: "flex", flexDirection: "column", background: "var(--card-bg, rgba(15,18,30,0.98))", borderRight: "1px solid var(--border, rgba(255,255,255,0.08))", minHeight: 0 },
-  sidebarHead: { padding: "16px 14px 12px", borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))" },
-  sidebarTitle: { fontSize: 15, fontWeight: 800, color: "var(--text, #f1f5f9)", marginBottom: 10 },
-  search: { width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border, rgba(255,255,255,0.1))", background: "var(--input-bg, rgba(255,255,255,0.05))", color: "var(--text, #f1f5f9)", fontSize: 12, outline: "none", boxSizing: "border-box" },
+  sidebar: { display: "flex", flexDirection: "column", background: "var(--surface)", borderRight: "1px solid var(--border)", minHeight: 0 },
+  sidebarHead: { padding: "16px 14px 12px", borderBottom: "1px solid var(--border)" },
+  sidebarTitle: { fontSize: 15, fontWeight: 800, color: "var(--text)", marginBottom: 10 },
+  search: { width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", fontSize: 12, outline: "none", boxSizing: "border-box" },
   sidebarScroll: { flex: 1, overflowY: "auto", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 3 },
-  runBtn: { display: "block", width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8, border: "1px solid transparent", cursor: "pointer", color: "var(--text, #f1f5f9)", background: "transparent", transition: "all 0.12s" },
+  runBtn: { display: "block", width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8, border: "1px solid transparent", cursor: "pointer", color: "var(--text)", background: "transparent", transition: "all 0.12s" },
   runBtnActive: { background: "rgba(59,130,246,0.1)", borderColor: "rgba(59,130,246,0.35)" },
   runBtnName: { fontWeight: 700, fontSize: 12.5, marginBottom: 2 },
   runBtnSub: { fontSize: 10.5, opacity: 0.5 },
   // main
-  main: { display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "var(--bg, #0a0c14)" },
-  empty: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text, #f1f5f9)", fontSize: 15 },
+  main: { display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "var(--bg)" },
+  empty: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text)", fontSize: 15 },
   scroll: { flex: 1, overflowY: "auto", padding: "24px 32px 48px", display: "flex", flexDirection: "column", gap: 18 },
   // header
   header: { marginBottom: 0 },
-  title: { margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text, #e5e7eb)" },
-  subtitle: { fontSize: 12, opacity: 0.5, marginTop: 2, color: "var(--text, #e5e7eb)" },
+  title: { margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text)" },
+  subtitle: { fontSize: 12, opacity: 0.5, marginTop: 2, color: "var(--text)" },
   // stats
   statsRow: { display: "flex", gap: 10, flexWrap: "wrap", flex: 1 },
-  stat: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "rgba(30,35,55,0.7)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "14px 18px", minWidth: 80 },
-  statIcon: { color: "rgba(148,163,184,0.9)", marginBottom: 4, display: "flex" },
-  statValue: { fontSize: 16, fontWeight: 800, color: "var(--text, #f1f5f9)", textAlign: "center" },
-  statLabel: { fontSize: 9, opacity: 0.5, color: "var(--text, #f1f5f9)", marginTop: 2, textAlign: "center" },
+  stat: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", minWidth: 80 },
+  statIcon: { color: "var(--text3)", marginBottom: 4, display: "flex" },
+  statValue: { fontSize: 16, fontWeight: 800, color: "var(--text)", textAlign: "center" },
+  statLabel: { fontSize: 9, opacity: 0.5, color: "var(--text)", marginTop: 2, textAlign: "center" },
   // map
-  mapBox: { width: "100%", height: 240, borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" },
+  mapBox: { width: "100%", height: 240, borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" },
   // charts
-  chartCard: { background: "rgba(15,18,30,0.9)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.08)", padding: "12px 12px 6px" },
-  chartLabel: { fontSize: 11, fontWeight: 700, opacity: 0.7, marginBottom: 4, color: "var(--text, #f1f5f9)" },
+  chartCard: { background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", padding: "12px 12px 6px" },
+  chartLabel: { fontSize: 11, fontWeight: 700, opacity: 0.7, marginBottom: 4, color: "var(--text)" },
   // table
-  tableCard: { background: "rgba(15,18,30,0.9)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.08)", padding: "14px 16px", overflowX: "auto" },
-  tableTitle: { fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 8, color: "var(--text, #f1f5f9)" },
-  table: { width: "100%", borderCollapse: "collapse", fontSize: 11.5, color: "var(--text, #f1f5f9)" },
-  th: { padding: "7px 10px", textAlign: "left", fontWeight: 600, fontSize: 10, opacity: 0.5, borderBottom: "1px solid rgba(255,255,255,0.08)" },
-  td: { padding: "8px 10px", borderTop: "1px solid rgba(255,255,255,0.05)" },
-  loadingText: { padding: 24, textAlign: "center", opacity: 0.4, fontSize: 13, color: "var(--text, #f1f5f9)" },
+  tableCard: { background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", padding: "14px 16px", overflowX: "auto" },
+  tableTitle: { fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 8, color: "var(--text)" },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 11.5, color: "var(--text)" },
+  th: { padding: "7px 10px", textAlign: "left", fontWeight: 600, fontSize: 10, opacity: 0.5, borderBottom: "1px solid var(--border)" },
+  td: { padding: "8px 10px", borderTop: "1px solid var(--border)" },
+  loadingText: { padding: 24, textAlign: "center", opacity: 0.4, fontSize: 13, color: "var(--text)" },
 };

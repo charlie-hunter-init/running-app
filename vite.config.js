@@ -126,7 +126,67 @@ function shoeOverridePlugin() {
   };
 }
 
+function workoutNotesPlugin() {
+  return {
+    name: 'workout-notes-api',
+    configureServer(server) {
+      server.middlewares.use('/api/workout-notes', async (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+
+        try {
+          const { LambdaClient, InvokeCommand } = await import('@aws-sdk/client-lambda');
+          const lambda = new LambdaClient({ region: 'ap-southeast-2' });
+
+          let body = '';
+          if (req.method === 'POST') {
+            body = await new Promise((resolve, reject) => {
+              let data = '';
+              req.on('data', chunk => data += chunk);
+              req.on('end', () => resolve(data));
+              req.on('error', reject);
+            });
+          }
+
+          const url = new URL(req.url, 'http://localhost');
+          const queryParams = Object.fromEntries(url.searchParams);
+
+          const event = {
+            httpMethod: req.method,
+            queryStringParameters: Object.keys(queryParams).length > 0 ? queryParams : null,
+            body: body || null,
+            headers: { 'Content-Type': 'application/json' },
+          };
+
+          const invokeResp = await lambda.send(new InvokeCommand({
+            FunctionName: 'arn:aws:lambda:ap-southeast-2:598945436007:function:workout-update',
+            InvocationType: 'RequestResponse',
+            Payload: Buffer.from(JSON.stringify(event)),
+          }));
+
+          const payload = invokeResp.Payload
+            ? JSON.parse(Buffer.from(invokeResp.Payload).toString())
+            : null;
+
+          if (invokeResp.FunctionError) {
+            console.error('[workout-notes] Lambda error:', payload);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Lambda failed', detail: payload }));
+            return;
+          }
+
+          res.statusCode = payload.statusCode || 200;
+          res.end(payload.body || JSON.stringify(payload));
+        } catch (err) {
+          console.error('[workout-notes] Error:', err.message);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), syncPlugin(), shoeOverridePlugin()],
+  plugins: [react(), syncPlugin(), shoeOverridePlugin(), workoutNotesPlugin()],
 })

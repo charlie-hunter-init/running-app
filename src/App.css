@@ -454,6 +454,70 @@ html[data-theme="light"] body {
   color: var(--select-color) !important;
 }
 
+/* Recharts text/ticks/grid for light mode */
+[data-theme="light"] .insights-page .recharts-cartesian-grid line {
+  stroke: rgba(0,0,0,0.08) !important;
+}
+[data-theme="light"] .insights-page .recharts-xAxis .recharts-cartesian-axis-tick-value,
+[data-theme="light"] .insights-page .recharts-yAxis .recharts-cartesian-axis-tick-value {
+  fill: #334155 !important;
+}
+[data-theme="light"] .insights-page .recharts-xAxis line,
+[data-theme="light"] .insights-page .recharts-yAxis line {
+  stroke: rgba(0,0,0,0.12) !important;
+}
+
+/* Tooltips in charts */
+[data-theme="light"] .insights-page div[style*="background: rgba(5,6,10"] {
+  background: rgba(255,255,255,0.95) !important;
+  border-color: rgba(0,0,0,0.12) !important;
+  color: #0f172a !important;
+}
+
+/* Shoe table, Activities table, Streak tracker */
+[data-theme="light"] .insights-page table {
+  border-color: rgba(0,0,0,0.10) !important;
+  background: rgba(255,255,255,0.8) !important;
+}
+[data-theme="light"] .insights-page table thead tr {
+  background: rgba(241,245,249,0.9) !important;
+}
+[data-theme="light"] .insights-page table thead th {
+  background: rgba(241,245,249,0.9) !important;
+  color: #334155 !important;
+  border-bottom-color: rgba(0,0,0,0.10) !important;
+}
+[data-theme="light"] .insights-page table tbody td {
+  color: #1e293b !important;
+  border-bottom-color: rgba(0,0,0,0.06) !important;
+}
+[data-theme="light"] .insights-page table tbody tr:hover {
+  background: rgba(59,130,246,0.06) !important;
+}
+
+/* All white text inside insights → dark */
+[data-theme="light"] .insights-page div[style*="color: rgba(255,255,255"],
+[data-theme="light"] .insights-page div[style*="color: #fff"],
+[data-theme="light"] .insights-page div[style*="color: #e5e7eb"],
+[data-theme="light"] .insights-page span[style*="color: rgba(255,255,255"],
+[data-theme="light"] .insights-page span[style*="color: rgba(229,231,235"] {
+  color: var(--text) !important;
+}
+
+/* WeeklySnapshot cards */
+[data-theme="light"] .insights-page div[style*="background: rgba(255,255,255,0.04)"],
+[data-theme="light"] .insights-page div[style*="background: rgba(255,255,255,0.03)"],
+[data-theme="light"] .insights-page div[style*="background: rgba(255,255,255,0.05)"] {
+  background: rgba(241,245,249,0.8) !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+
+/* Streak cards and separators */
+[data-theme="light"] .insights-page div[style*="background: rgba(255,255,255,0.10)"],
+[data-theme="light"] .insights-page div[style*="height: 1"] {
+  background: rgba(0,0,0,0.08) !important;
+}
+
 /* Map sidebar (RecentRunsList) */
 [data-theme="light"] aside {
   background: linear-gradient(180deg, #fff 0%, #f8fafc 100%) !important;
@@ -461,7 +525,13 @@ html[data-theme="light"] body {
   border-left-color: rgba(0,0,0,0.08) !important;
 }
 [data-theme="light"] aside .recent-card {
-  border-color: rgba(0,0,0,0.10) !important;
+  border-color: rgba(0,0,0,0.12) !important;
+  background: rgba(255,255,255,0.92) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04) !important;
+}
+[data-theme="light"] aside .recent-card div[style*="linear-gradient(180deg"] {
+  opacity: 1 !important;
+  filter: saturate(1.8) brightness(0.85) !important;
 }
 
 /* Tables */

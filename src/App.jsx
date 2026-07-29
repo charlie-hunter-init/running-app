@@ -24,6 +24,8 @@ export default function StravaHeatmapApp() {
   const [stats, setStats] = useState(null);
   const [pb, setPb] = useState(null);
   const [indexData, setIndexData] = useState(null);
+  const [shoeOverrides, setShoeOverrides] = useState({});
+  const [workoutNotes, setWorkoutNotes] = useState({});
 
   // Filters
   const [year, setYear] = useState("All");
@@ -113,6 +115,14 @@ export default function StravaHeatmapApp() {
     fetch("/runs_index.json")
       .then((r) => (r.ok ? r.json() : null))
       .then((idx) => idx && setIndexData(idx))
+      .catch(() => {});
+    fetch("/api/shoe-override?action=get_all")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data) => setShoeOverrides(data.overrides || {}))
+      .catch(() => {});
+    fetch("/api/workout-notes?action=get_all")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data) => setWorkoutNotes(data.notes || {}))
       .catch(() => {});
   }, []);
 
@@ -481,9 +491,9 @@ export default function StravaHeatmapApp() {
             setWeeklyRange={setWeeklyRange}
           />
         ) : tab === "breakdown" ? (
-          <BreakDownView items={allIndexItems} idToFeature={idToFeature} stats={stats} setStats={setStats} />
+          <BreakDownView items={allIndexItems} idToFeature={idToFeature} stats={stats} setStats={setStats} workoutNotes={workoutNotes} />
         ) : tab === "calendar" ? (
-          <CalendarView features={features} filtered={filtered} items={allIndexItems} />
+          <CalendarView features={features} filtered={filtered} items={allIndexItems} shoeOverrides={shoeOverrides} workoutNotes={workoutNotes} />
         ) : tab === "wrapped" ? (
           <WrapView items={allIndexItems} features={features} />
         ) : (

@@ -127,8 +127,8 @@ function StreakCard({ title, value, subtitle, tone }) {
     <div
       style={{
         ...styles.card,
-        borderColor: isCurrent ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.08)",
-        background: isCurrent ? "rgba(99,102,241,0.10)" : "rgba(255,255,255,0.03)",
+        borderColor: isCurrent ? "rgba(99,102,241,0.35)" : "var(--border)",
+        background: isCurrent ? "rgba(99,102,241,0.10)" : "var(--surface)",
       }}
     >
       <div style={styles.cardTitle}>{title}</div>
@@ -142,8 +142,8 @@ const styles = {
   panel: {
     width: "100%",
     borderRadius: 18,
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
     padding: 14,
   },
   headerRow: {
@@ -157,17 +157,17 @@ const styles = {
     fontSize: 12,
     letterSpacing: "0.10em",
     textTransform: "uppercase",
-    color: "rgba(229,231,235,0.70)",
+    color: "var(--text3)",
     fontWeight: 900,
   },
   title: {
     fontSize: 16,
     fontWeight: 950,
-    color: "rgba(255,255,255,0.92)",
+    color: "var(--text)",
   },
   miniNote: {
     fontSize: 12,
-    color: "rgba(229,231,235,0.65)",
+    color: "var(--text3)",
     textAlign: "right",
     maxWidth: 360,
   },
@@ -178,25 +178,25 @@ const styles = {
   },
   card: {
     borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid var(--border)",
     padding: 12,
   },
   cardTitle: {
     fontSize: 12,
-    color: "rgba(229,231,235,0.75)",
+    color: "var(--text3)",
     fontWeight: 900,
     marginBottom: 6,
   },
   cardValue: {
     fontSize: 22,
     fontWeight: 950,
-    color: "rgba(255,255,255,0.92)",
+    color: "var(--text)",
     lineHeight: 1.1,
     marginBottom: 4,
   },
   cardSub: {
     fontSize: 12,
-    color: "rgba(229,231,235,0.70)",
+    color: "var(--text3)",
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
