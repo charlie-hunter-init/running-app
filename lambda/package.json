@@ -2,6 +2,9 @@
   "name": "strava-sync-lambda",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "test": "node --test test/intervals.test.js"
+  },
   "dependencies": {
     "axios": "^1.7.0",
     "@mapbox/polyline": "^1.2.1",
